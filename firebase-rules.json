@@ -1,0 +1,69 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "users": {
+      "$uid": {
+        ".read": true,
+        ".write": "$uid.matches(/^[0-9]{7}$/)",
+
+        "online":   { ".validate": "newData.isBoolean()" },
+        "lastSeen": { ".validate": "newData.isNumber()" },
+        "status":   { ".validate": "newData.isString() && newData.val().length < 20" },
+
+        "invites": {
+          "$roomId": {
+            ".write": "newData.exists() ? newData.child('from').val() !== $uid : true",
+            ".validate": "newData.hasChildren(['from','timestamp'])",
+            "from":      { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{7}$/)" },
+            "timestamp": { ".validate": "newData.isNumber()" },
+            "$other":    { ".validate": false }
+          }
+        },
+
+        "$other": { ".validate": false }
+      }
+    },
+
+    "matchmaking": {
+      "waiting": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.val() === null || (newData.hasChildren(['id','roomId']) && newData.child('id').val().matches(/^[0-9]{7}$/))"
+      }
+    },
+
+    "rooms": {
+      "$roomId": {
+        ".read": true,
+
+        "participants": {
+          ".write": true,
+          "$uid": {
+            ".validate": "$uid.matches(/^[0-9]{7}$/) && newData.isBoolean()"
+          }
+        },
+
+        "messages": {
+          ".write": true,
+          "$msgId": {
+            ".validate": "newData.hasChildren(['sender','text','timestamp'])",
+            "sender":    { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{7}$/)" },
+            "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
+            "timestamp": { ".validate": "newData.isNumber()" },
+            "$other":    { ".validate": false }
+          }
+        },
+
+        "typing": {
+          ".write": true,
+          "$uid": { ".validate": "newData.isBoolean()" }
+        },
+
+        "declined": { ".write": true, ".validate": "newData.isBoolean()" },
+        "canceled": { ".write": true, ".validate": "newData.isBoolean()" }
+      }
+    }
+  }
+}
