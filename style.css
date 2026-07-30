@@ -28,6 +28,13 @@
 
 * { box-sizing: border-box; }
 
+/* The `hidden` attribute must always win over component display rules
+   (several elements below use `display: flex` for their visible state,
+   which would otherwise silently cancel out `[hidden]`). */
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   height: 100%;
   margin: 0;
