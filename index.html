@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>NUMBERS — anonymous chat</title>
+<title>מספרים — צ׳אט אנונימי</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,22 +19,23 @@
 
   <header class="brand">
     <span class="brand-dot"></span>
-    <span class="brand-name">NUMBERS</span>
+    <span class="brand-name">מספרים</span>
+    <button id="btn-settings" class="icon-btn settings-btn" aria-label="הגדרות">⚙</button>
   </header>
 
   <section class="id-card">
-    <p class="id-label">your signal</p>
-    <div class="id-display" id="my-id">— — — — — — —</div>
-    <p class="id-hint">share this number so someone can call you</p>
+    <p class="id-label">האות שלך</p>
+    <div class="id-display" id="my-id" dir="ltr">— — — — — —</div>
+    <p class="id-hint">שתפו את המספר הזה כדי שמישהו יוכל להתקשר אליכם</p>
   </section>
 
   <section class="actions">
     <button id="btn-random" class="btn btn-primary">
       <span class="dial-mini" aria-hidden="true"></span>
-      Find a random signal
+      מצא/י אות אקראי
     </button>
 
-    <div class="divider"><span>or dial direct</span></div>
+    <div class="divider"><span>או חייגו ישירות</span></div>
 
     <form id="form-connect" class="connect-form" autocomplete="off">
       <input
@@ -43,19 +44,48 @@
         type="text"
         inputmode="numeric"
         pattern="[0-9]*"
-        maxlength="7"
-        placeholder="0000000"
-        aria-label="Partner ID"
+        maxlength="6"
+        placeholder="000000"
+        aria-label="מספר בן שיחה"
+        dir="ltr"
       >
-      <button type="submit" class="btn btn-secondary">Connect</button>
+      <button type="submit" class="btn btn-secondary">התחברות</button>
     </form>
   </section>
 
   <p id="home-status" class="status-line" role="status"></p>
 
   <footer class="footnote">
-    No accounts. No history kept after you leave. Just numbers, briefly connected.
+    בלי חשבונות. בלי היסטוריה שנשמרת אחרי שעוזבים. רק מספרים, מחוברים לרגע.
   </footer>
+</main>
+
+<!-- ================= SETTINGS SCREEN ================= -->
+<main id="screen-settings" class="screen">
+  <header class="chat-header settings-header">
+    <button id="btn-settings-back" class="icon-btn" aria-label="חזרה">→</button>
+    <div class="chat-peer">
+      <span class="peer-label">הגדרות</span>
+    </div>
+  </header>
+
+  <section class="settings-body">
+    <section class="id-card">
+      <p class="id-label">האות שלך כרגע</p>
+      <div class="id-display small" id="settings-id" dir="ltr">— — — — — —</div>
+    </section>
+
+    <section class="settings-block">
+      <h2 class="settings-title">איפוס מספר</h2>
+      <p class="settings-text">
+        איפוס יבטל את הגישה למספר הנוכחי ויקצה לך מספר חדש לגמרי.
+        זה שימושי אם מישהו מציק לך או שולח לך הודעות לא רצויות —
+        אחרי האיפוס הוא לא יוכל למצוא אותך יותר לפי המספר הישן.
+      </p>
+      <button id="btn-reset-id" class="btn btn-danger">אפס מספר</button>
+      <p id="settings-status" class="status-line" role="status"></p>
+    </section>
+  </section>
 </main>
 
 <!-- ================= SEARCHING SCREEN ================= -->
@@ -64,37 +94,37 @@
     <div class="dial" id="dial">
       <div class="dial-face">
         <div class="dial-needle"></div>
-        <div class="dial-center" id="search-id-center">— — —</div>
+        <div class="dial-center" id="search-id-center" dir="ltr">— — —</div>
       </div>
     </div>
   </div>
-  <p class="scan-text" id="scan-text">scanning frequencies…</p>
-  <button id="btn-cancel-search" class="btn btn-ghost">Cancel</button>
+  <p class="scan-text" id="scan-text">סורק תדרים…</p>
+  <button id="btn-cancel-search" class="btn btn-ghost">ביטול</button>
 </main>
 
 <!-- ================= INCOMING INVITE TOAST ================= -->
 <div id="invite-toast" class="invite-toast" hidden>
-  <p><span id="invite-from">0000000</span> is calling you.</p>
+  <p><span id="invite-from" dir="ltr">000000</span> מתקשר/ת אליך</p>
   <div class="invite-actions">
-    <button id="btn-decline" class="btn btn-ghost small">Ignore</button>
-    <button id="btn-accept" class="btn btn-primary small">Answer</button>
+    <button id="btn-decline" class="btn btn-ghost small">התעלמות</button>
+    <button id="btn-accept" class="btn btn-primary small">מענה</button>
   </div>
 </div>
 
 <!-- ================= CHAT SCREEN ================= -->
 <main id="screen-chat" class="screen">
   <header class="chat-header">
-    <button id="btn-leave" class="icon-btn" aria-label="Leave chat">←</button>
+    <button id="btn-leave" class="icon-btn" aria-label="יציאה מהצ׳אט">→</button>
     <div class="chat-peer">
-      <span class="peer-label">connected to</span>
-      <span class="peer-id" id="peer-id">0000000</span>
+      <span class="peer-label">מחובר/ת אל</span>
+      <span class="peer-id" id="peer-id" dir="ltr">000000</span>
     </div>
-    <span class="live-dot" id="peer-status" title="connection status"></span>
+    <span class="live-dot" id="peer-status" title="סטטוס חיבור"></span>
   </header>
 
   <div class="messages" id="messages"></div>
 
-  <p class="typing-indicator" id="typing-indicator" hidden>signal typing…</p>
+  <p class="typing-indicator" id="typing-indicator" hidden>האות מקליד/ה…</p>
 
   <form id="form-message" class="message-form" autocomplete="off">
     <input
@@ -102,10 +132,10 @@
       class="message-input"
       type="text"
       maxlength="2000"
-      placeholder="transmit a message…"
-      aria-label="Message"
+      placeholder="שדר/י הודעה…"
+      aria-label="הודעה"
     >
-    <button type="submit" class="btn btn-primary send-btn" aria-label="Send">▲</button>
+    <button type="submit" class="btn btn-primary send-btn" aria-label="שליחה">▲</button>
   </form>
 </main>
 
