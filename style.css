@@ -716,3 +716,14 @@ button {
 #admin-chat-messages {
   padding: 16px;
 }
+
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  margin-inline-start: 7px;
+  box-shadow: 0 0 5px 1px rgba(226, 87, 76, 0.6);
+  vertical-align: middle;
+}
