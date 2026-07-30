@@ -3,12 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
-<title>מספרים — צ׳אט אנונימי</title>
+<title>צ'אט אנונימי</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<!-- ?v=N is a cache-buster: bump this number every time you edit style.css/app.js
+     and redeploy, so phones and CDNs are forced to fetch the new file instead
+     of serving a stale cached copy. -->
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 
@@ -19,7 +22,7 @@
 
   <header class="brand">
     <span class="brand-dot"></span>
-    <span class="brand-name">מספרים</span>
+    <span class="brand-name">צ'אט אנונימי</span>
     <button id="btn-settings" class="icon-btn settings-btn" aria-label="הגדרות">⚙</button>
   </header>
 
@@ -141,7 +144,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="firebase-config.js"></script>
-<script src="app.js"></script>
+<script src="firebase-config.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
