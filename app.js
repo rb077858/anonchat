@@ -820,7 +820,10 @@ function markAdminActivity() {
 }
 function adminIdleRemainingMs() {
   try {
-    const last = parseInt(localStorage.getItem(ADMIN_ACTIVITY_KEY) || '0', 10);
+    const raw = localStorage.getItem(ADMIN_ACTIVITY_KEY);
+    if (!raw) return ADMIN_IDLE_LIMIT_MS; // no record yet — first login, not expired
+    const last = parseInt(raw, 10);
+    if (!last || isNaN(last)) return ADMIN_IDLE_LIMIT_MS;
     return ADMIN_IDLE_LIMIT_MS - (Date.now() - last);
   } catch (e) {
     return ADMIN_IDLE_LIMIT_MS;
@@ -839,28 +842,35 @@ function resetAdminIdleTimer() {
 });
 
 auth.onAuthStateChanged(async (user) => {
-  if (user && typeof ADMIN_UID === 'string' && user.uid === ADMIN_UID) {
-    if (adminIdleRemainingMs() <= 0) {
-      // more than 30 idle minutes passed since the last recorded activity
-      // (e.g. the tab was closed) — expire the session instead of letting
-      // Firebase's own persisted login silently walk back in.
+  try {
+    if (user && typeof ADMIN_UID === 'string' && user.uid === ADMIN_UID) {
+      if (adminIdleRemainingMs() <= 0) {
+        // more than 30 idle minutes passed since the last recorded activity
+        // (e.g. the tab was closed) — expire the session instead of letting
+        // Firebase's own persisted login silently walk back in.
+        await auth.signOut();
+        return;
+      }
+      enterAdminDashboard();
+    } else if (user) {
+      // signed in successfully, but this account's UID doesn't match
+      // ADMIN_UID in firebase-config.js — almost always a setup mistake,
+      // so surface it clearly instead of bouncing back to the home screen.
+      console.warn('Signed in, but UID does not match ADMIN_UID:', user.uid);
+      adminLoginStatusEl.textContent =
+        'ההתחברות הצליחה אך זה אינו חשבון המנהל המוגדר (בדקו את ADMIN_UID ב-firebase-config.js)';
+      adminLoginStatusEl.className = 'status-line error';
       await auth.signOut();
-      return;
+    } else {
+      clearTimeout(adminIdleTimer);
+      stopAdminDashboard();
+      if (screens.admin.classList.contains('active')) showScreen('home');
     }
-    enterAdminDashboard();
-  } else if (user) {
-    // signed in successfully, but this account's UID doesn't match
-    // ADMIN_UID in firebase-config.js — almost always a setup mistake,
-    // so surface it clearly instead of bouncing back to the home screen.
-    console.warn('Signed in, but UID does not match ADMIN_UID:', user.uid);
-    adminLoginStatusEl.textContent =
-      'ההתחברות הצליחה אך זה אינו חשבון המנהל המוגדר (בדקו את ADMIN_UID ב-firebase-config.js)';
+  } catch (err) {
+    // whatever went wrong, never leave the login box stuck on "מתחבר/ת…"
+    console.error('Admin auth-state handling failed:', err);
+    adminLoginStatusEl.textContent = 'אירעה שגיאה, נסה/י שוב';
     adminLoginStatusEl.className = 'status-line error';
-    await auth.signOut();
-  } else {
-    clearTimeout(adminIdleTimer);
-    stopAdminDashboard();
-    if (screens.admin.classList.contains('active')) showScreen('home');
   }
 });
 
