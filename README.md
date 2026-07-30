@@ -1,8 +1,15 @@
 # NUMBERS — anonymous real-time chat
 
-A static, login-free chat app. Every device gets a random 7-digit ID the
-moment it first opens the site. Find a random stranger or dial someone's
-number directly — everything after that happens in real time over Firebase.
+A static, login-free chat app with a Hebrew (RTL) interface. Every device
+gets a random 6-digit ID the moment it first opens the site. Find a random
+stranger or dial someone's number directly — everything after that happens
+in real time over Firebase.
+
+If someone keeps bothering a person on their current number, the gear icon
+on the home screen opens **הגדרות** (Settings), where **אפס מספר** (reset
+number) deletes the old ID from the database and issues a brand new one —
+the old number stops working immediately, so whoever was messaging that ID
+can no longer reach the device.
 
 Files:
 ```
@@ -55,7 +62,7 @@ database rules in the next step.
 **What these rules do (and don't do):** since this app has no login system,
 the rules can't check "who" is writing — only "does the shape of the data
 look valid". They enforce:
-- IDs must be exactly 7 digits.
+- IDs must be exactly 6 digits.
 - Messages must be short (≤2000 chars) and have the right fields.
 - A user can only write invites addressed to someone else, not to themself.
 - Random/junk fields are rejected.
