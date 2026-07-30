@@ -752,6 +752,10 @@ function openAdminLoginOverlay() {
   adminPasswordInput.value = '';
   adminLoginStatusEl.textContent = '';
   adminLoginStatusEl.className = 'status-line';
+  if (typeof ADMIN_UID !== 'string' || !ADMIN_UID || ADMIN_UID.indexOf('REPLACE_WITH') === 0) {
+    adminLoginStatusEl.textContent = 'ADMIN_UID עדיין לא הוגדר ב-firebase-config.js';
+    adminLoginStatusEl.className = 'status-line error';
+  }
   adminOverlay.hidden = false;
 }
 
@@ -771,7 +775,9 @@ document.getElementById('btn-admin-login-submit').addEventListener('click', asyn
   adminLoginStatusEl.className = 'status-line';
   try {
     await auth.signInWithEmailAndPassword(email, password);
-    adminOverlay.hidden = true;
+    // overlay stays open until onAuthStateChanged confirms this is the
+    // admin account — see below, so a UID mismatch shows a clear error
+    // here instead of silently bouncing back to the home screen.
   } catch (err) {
     adminLoginStatusEl.textContent = 'פרטי התחברות שגויים';
     adminLoginStatusEl.className = 'status-line error';
@@ -785,10 +791,17 @@ document.getElementById('btn-admin-logout').addEventListener('click', async () =
 
 auth.onAuthStateChanged(async (user) => {
   if (user && typeof ADMIN_UID === 'string' && user.uid === ADMIN_UID) {
+    adminOverlay.hidden = true;
     showScreen('admin');
     startAdminDashboard();
   } else if (user) {
-    // signed in but not the admin account — never expected in normal use
+    // signed in successfully, but this account's UID doesn't match
+    // ADMIN_UID in firebase-config.js — almost always a setup mistake,
+    // so surface it clearly instead of bouncing back to the home screen.
+    console.warn('Signed in, but UID does not match ADMIN_UID:', user.uid);
+    adminLoginStatusEl.textContent =
+      'ההתחברות הצליחה אך זה אינו חשבון המנהל המוגדר (בדקו את ADMIN_UID ב-firebase-config.js)';
+    adminLoginStatusEl.className = 'status-line error';
     await auth.signOut();
   } else {
     stopAdminDashboard();
