@@ -11,7 +11,7 @@
 <!-- ?v=N is a cache-buster: bump this number every time you edit style.css/app.js
      and redeploy, so phones and CDNs are forced to fetch the new file instead
      of serving a stale cached copy. -->
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -32,7 +32,8 @@
     <p class="id-hint">שתפו את המספר הזה כדי שמישהו יוכל להתקשר אליכם</p>
   </section>
 
-  <section class="actions">
+  <!-- shown only to regular, non-blocked users -->
+  <section class="actions" id="home-actions">
     <button id="btn-random" class="btn btn-primary">
       <span class="dial-mini" aria-hidden="true"></span>
       מצא/י אות אקראי
@@ -54,6 +55,15 @@
       >
       <button type="submit" class="btn btn-secondary">התחברות</button>
     </form>
+  </section>
+
+  <!-- shown only to blocked devices, instead of the actions above -->
+  <section class="settings-block" id="blocked-notice" hidden>
+    <h2 class="settings-title">הגישה שלך הוגבלה</h2>
+    <p class="settings-text" id="blocked-reason-text">
+      נחסמת משיחה עם משתמשים אחרים בעקבות דיווח.
+    </p>
+    <button id="btn-open-support" class="btn btn-primary">פנייה למנהל</button>
   </section>
 
   <p id="home-status" class="status-line" role="status"></p>
@@ -123,6 +133,7 @@
       <span class="peer-id" id="peer-id" dir="ltr">000000</span>
     </div>
     <span class="live-dot" id="peer-status" title="סטטוס חיבור"></span>
+    <button id="btn-report" class="icon-btn report-btn" aria-label="דיווח">🚩</button>
   </header>
 
   <div class="messages" id="messages"></div>
@@ -142,9 +153,110 @@
   </form>
 </main>
 
+<!-- ================= SUPPORT SCREEN (blocked user <-> admin) ================= -->
+<main id="screen-support" class="screen">
+  <header class="chat-header">
+    <button id="btn-support-back" class="icon-btn" aria-label="חזרה">→</button>
+    <div class="chat-peer">
+      <span class="peer-label">שיחה עם</span>
+      <span class="peer-id">מנהל</span>
+    </div>
+  </header>
+
+  <div class="messages" id="support-messages"></div>
+
+  <p class="settings-text" id="support-muted-note" hidden style="padding:0 16px 12px;">
+    המנהל השהה את האפשרות שלך לשלוח הודעות כרגע.
+  </p>
+
+  <form id="form-support-message" class="message-form" autocomplete="off">
+    <input
+      id="input-support-message"
+      class="message-input"
+      type="text"
+      maxlength="2000"
+      placeholder="כתבו הודעה למנהל…"
+      aria-label="הודעה למנהל"
+    >
+    <button type="submit" class="btn btn-primary send-btn" aria-label="שליחה">▲</button>
+  </form>
+</main>
+
+<!-- ================= ADMIN LOGIN OVERLAY ================= -->
+<div id="admin-login-overlay" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <h2 class="settings-title">כניסת מנהל</h2>
+    <p class="settings-text">התחברות עם חשבון המנהל שלך ב-Firebase.</p>
+    <input id="admin-email" class="id-input admin-input" type="email" placeholder="אימייל" dir="ltr" autocomplete="username">
+    <input id="admin-password" class="id-input admin-input" type="password" placeholder="סיסמה" dir="ltr" autocomplete="current-password">
+    <p id="admin-login-status" class="status-line" role="status"></p>
+    <div class="invite-actions">
+      <button id="btn-admin-login-cancel" class="btn btn-ghost small">ביטול</button>
+      <button id="btn-admin-login-submit" class="btn btn-primary small">כניסה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADMIN DASHBOARD ================= -->
+<main id="screen-admin" class="screen">
+  <header class="chat-header">
+    <button id="btn-admin-logout" class="icon-btn" aria-label="יציאה">→</button>
+    <div class="chat-peer">
+      <span class="peer-label">לוח ניהול</span>
+    </div>
+  </header>
+
+  <div class="tab-bar">
+    <button id="tab-reports" class="tab-btn active">דיווחים <span id="reports-count" class="tab-badge" hidden>0</span></button>
+    <button id="tab-blocked" class="tab-btn">משתמשים חסומים</button>
+  </div>
+
+  <!-- reports list -->
+  <div id="admin-reports-view" class="admin-view">
+    <div id="reports-list" class="admin-list"></div>
+    <p id="reports-empty" class="settings-text admin-empty" hidden>אין דיווחים ממתינים כרגע.</p>
+  </div>
+
+  <!-- blocked users list -->
+  <div id="admin-blocked-view" class="admin-view" hidden>
+    <div id="blocked-list" class="admin-list"></div>
+    <p id="blocked-empty" class="settings-text admin-empty" hidden>אין משתמשים חסומים כרגע.</p>
+  </div>
+
+  <!-- admin <-> device chat -->
+  <div id="admin-chat-view" class="admin-view admin-chat-view" hidden>
+    <div class="chat-header admin-chat-header">
+      <button id="btn-admin-chat-back" class="icon-btn" aria-label="חזרה">→</button>
+      <div class="chat-peer">
+        <span class="peer-label">שיחה עם משתמש חסום</span>
+        <span class="peer-id" id="admin-chat-target" dir="ltr">—</span>
+      </div>
+    </div>
+    <div class="messages" id="admin-chat-messages"></div>
+    <form id="form-admin-chat-message" class="message-form" autocomplete="off">
+      <input id="input-admin-chat-message" class="message-input" type="text" maxlength="2000" placeholder="כתבו הודעה…" aria-label="הודעה">
+      <button type="submit" class="btn btn-primary send-btn" aria-label="שליחה">▲</button>
+    </form>
+  </div>
+</main>
+
+<!-- ================= REPORT DETAIL / BLOCK MODAL ================= -->
+<div id="block-reason-overlay" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <h2 class="settings-title">חסימת <span id="block-target-id" dir="ltr"></span></h2>
+    <p class="settings-text">אפשר להשאיר סיבה לחסימה (אופציונלי) — היא תוצג למשתמש בשיחת התמיכה שלו.</p>
+    <textarea id="block-reason-text" class="id-input admin-input block-reason-textarea" placeholder="סיבת החסימה…"></textarea>
+    <div class="invite-actions">
+      <button id="btn-block-cancel" class="btn btn-ghost small">ביטול</button>
+      <button id="btn-block-confirm" class="btn btn-danger small">אישור חסימה</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="firebase-config.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="firebase-config.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
