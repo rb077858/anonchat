@@ -1,4 +1,4 @@
-# NUMBERS — anonymous real-time chat
+# צ'אט אנונימי — anonymous real-time chat
 
 A static, login-free chat app with a Hebrew (RTL) interface. Every device
 gets a random 6-digit ID the moment it first opens the site. Find a random
@@ -107,6 +107,40 @@ simulate two devices talking to each other.
 
 No build step is needed — it's plain HTML/CSS/JS loading Firebase from a
 CDN, so GitHub Pages can serve it as-is.
+
+## If changes don't show up after you redeploy (caching)
+
+GitHub Pages is served through a CDN (Fastly), which caches `style.css` and
+`app.js` for a while independent of your browser. On mobile this is worse:
+"clear cache" in Android's app settings often clears Chrome's *image/media*
+cache but not what's serving the page, so old files can keep showing up
+even after that.
+
+The fix already built into `index.html`: the stylesheet and script tags are
+loaded with a version marker —
+
+```html
+<link rel="stylesheet" href="style.css?v=3">
+...
+<script src="app.js?v=3"></script>
+```
+
+To a browser/CDN, `style.css?v=3` and `style.css?v=4` are two completely
+different URLs, so a stale cached copy can never be served for the new
+version. **Every time you edit `style.css` or `app.js` and push the
+change, bump the `v=` number** in `index.html` (both the `<link>` and the
+`<script>` tag). That alone forces every device to fetch the fresh files,
+no manual cache-clearing needed on your end or the user's.
+
+Two more things worth knowing:
+- After a `git push`, GitHub Pages can take a minute or two to actually
+  rebuild — check the **Actions** tab in your repo for a green checkmark
+  before assuming a change didn't work.
+- A quick way to confirm what a phone is actually loading: open
+  `https://YOUR_USERNAME.github.io/YOUR_REPO/app.js` directly in the phone's
+  browser and check the number in the URL bar / page matches what you
+  expect, or search the page source for a string you know is only in the
+  new version.
 
 ## How it works (data model)
 
