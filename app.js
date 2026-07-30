@@ -94,7 +94,13 @@ function setHomeStatus(msg, kind) {
 }
 
 function formatId(id) {
-  return id ? id.split('').join(' ') : '';
+  if (!id) return '';
+  // \u2066 / \u2069 = Unicode LRI/PDI isolate marks. Without them, a
+  // space-separated digit sequence embedded inside Hebrew (RTL) text can
+  // get visually reordered by the browser's bidi algorithm — wrapping it
+  // in an isolate keeps the digits in the correct left-to-right order
+  // no matter what Hebrew text surrounds it.
+  return '\u2066' + id.split('').join(' ') + '\u2069';
 }
 
 // ============================================================
@@ -264,7 +270,12 @@ formConnect.addEventListener('submit', async (e) => {
   if (targetId === ADMIN_TRIGGER_CODE) {
     inputPartner.value = '';
     setHomeStatus('');
-    openAdminLoginOverlay();
+    if (auth.currentUser && auth.currentUser.uid === ADMIN_UID) {
+      // already signed in from earlier in this session — just re-enter
+      enterAdminDashboard();
+    } else {
+      openAdminLoginOverlay();
+    }
     return;
   }
 
@@ -428,7 +439,6 @@ function joinChatRoom(roomId, peerId, opts = {}) {
   peerIdEl.textContent = formatId(peerId);
   peerStatusEl.classList.remove('offline');
   showScreen('chat');
-  disarmReport();
 
   appendMessage(
     opts.calling ? 'מתקשר/ת אל ' + formatId(peerId) + '…' : 'מחובר/ת אל ' + formatId(peerId),
@@ -531,24 +541,19 @@ async function leaveChat() {
 // 8. REPORTING — kicks both sides out immediately and rotates
 //    both of their numbers, then queues the case for the admin
 // ============================================================
-let reportArmed = false;
-let reportArmTimeout = null;
+const reportConfirmOverlay = document.getElementById('report-confirm-overlay');
 
-function disarmReport() {
-  reportArmed = false;
-  clearTimeout(reportArmTimeout);
-  btnReport.classList.remove('armed');
-}
-
-btnReport.addEventListener('click', async () => {
+btnReport.addEventListener('click', () => {
   if (!currentRoomId) return;
-  if (!reportArmed) {
-    reportArmed = true;
-    btnReport.classList.add('armed');
-    reportArmTimeout = setTimeout(disarmReport, 4000);
-    return;
-  }
-  disarmReport();
+  reportConfirmOverlay.hidden = false;
+});
+
+document.getElementById('btn-report-cancel').addEventListener('click', () => {
+  reportConfirmOverlay.hidden = true;
+});
+
+document.getElementById('btn-report-confirm').addEventListener('click', async () => {
+  reportConfirmOverlay.hidden = true;
   await submitReport();
 });
 
@@ -784,16 +789,65 @@ document.getElementById('btn-admin-login-submit').addEventListener('click', asyn
   }
 });
 
-document.getElementById('btn-admin-logout').addEventListener('click', async () => {
-  await auth.signOut();
+// "back" just leaves the dashboard screen — it does NOT sign out, so
+// re-entering with 137925 skips the password until the session actually
+// expires (idle timeout) or the admin explicitly signs out.
+document.getElementById('btn-admin-back').addEventListener('click', () => {
   showScreen('home');
+});
+
+document.getElementById('btn-admin-signout').addEventListener('click', async () => {
+  await auth.signOut();
+});
+
+function enterAdminDashboard() {
+  adminOverlay.hidden = true;
+  showScreen('admin');
+  if (!adminDashboardActive) startAdminDashboard();
+  resetAdminIdleTimer();
+}
+
+// ---------- 30-minute idle auto sign-out ----------
+const ADMIN_IDLE_LIMIT_MS = 30 * 60 * 1000;
+const ADMIN_ACTIVITY_KEY = 'numbers_admin_last_activity';
+let adminIdleTimer = null;
+
+function isAdminSession() {
+  return !!(auth.currentUser && auth.currentUser.uid === ADMIN_UID);
+}
+function markAdminActivity() {
+  try { localStorage.setItem(ADMIN_ACTIVITY_KEY, String(Date.now())); } catch (e) { /* ignore */ }
+}
+function adminIdleRemainingMs() {
+  try {
+    const last = parseInt(localStorage.getItem(ADMIN_ACTIVITY_KEY) || '0', 10);
+    return ADMIN_IDLE_LIMIT_MS - (Date.now() - last);
+  } catch (e) {
+    return ADMIN_IDLE_LIMIT_MS;
+  }
+}
+function resetAdminIdleTimer() {
+  clearTimeout(adminIdleTimer);
+  if (!isAdminSession()) return;
+  markAdminActivity();
+  adminIdleTimer = setTimeout(() => auth.signOut(), ADMIN_IDLE_LIMIT_MS);
+}
+['click', 'keydown', 'touchstart'].forEach((evt) => {
+  document.addEventListener(evt, () => {
+    if (isAdminSession()) resetAdminIdleTimer();
+  });
 });
 
 auth.onAuthStateChanged(async (user) => {
   if (user && typeof ADMIN_UID === 'string' && user.uid === ADMIN_UID) {
-    adminOverlay.hidden = true;
-    showScreen('admin');
-    startAdminDashboard();
+    if (adminIdleRemainingMs() <= 0) {
+      // more than 30 idle minutes passed since the last recorded activity
+      // (e.g. the tab was closed) — expire the session instead of letting
+      // Firebase's own persisted login silently walk back in.
+      await auth.signOut();
+      return;
+    }
+    enterAdminDashboard();
   } else if (user) {
     // signed in successfully, but this account's UID doesn't match
     // ADMIN_UID in firebase-config.js — almost always a setup mistake,
@@ -804,6 +858,7 @@ auth.onAuthStateChanged(async (user) => {
     adminLoginStatusEl.className = 'status-line error';
     await auth.signOut();
   } else {
+    clearTimeout(adminIdleTimer);
     stopAdminDashboard();
     if (screens.admin.classList.contains('active')) showScreen('home');
   }
@@ -835,8 +890,11 @@ tabBlocked.addEventListener('click', () => showAdminTab('blocked'));
 
 let adminReportsRef = null, adminReportsCb = null;
 let adminBlocklistRef = null, adminBlocklistCb = null;
+let adminDashboardActive = false;
+let currentBlocklistObj = {};
 
 function startAdminDashboard() {
+  adminDashboardActive = true;
   showAdminTab('reports');
 
   adminReportsRef = db.ref('reports').orderByChild('status').equalTo('pending');
@@ -844,15 +902,23 @@ function startAdminDashboard() {
   adminReportsRef.on('value', adminReportsCb);
 
   adminBlocklistRef = db.ref('blocklist');
-  adminBlocklistCb = (snap) => renderBlocked(snap.val() || {});
+  adminBlocklistCb = (snap) => {
+    currentBlocklistObj = snap.val() || {};
+    const blockedIds = Object.keys(currentBlocklistObj)
+      .filter((id) => currentBlocklistObj[id] && currentBlocklistObj[id].blocked);
+    syncUnreadListeners(blockedIds);
+    renderBlocked(currentBlocklistObj);
+  };
   adminBlocklistRef.on('value', adminBlocklistCb);
 }
 
 function stopAdminDashboard() {
+  adminDashboardActive = false;
   if (adminReportsRef && adminReportsCb) adminReportsRef.off('value', adminReportsCb);
   if (adminBlocklistRef && adminBlocklistCb) adminBlocklistRef.off('value', adminBlocklistCb);
   adminReportsRef = null;
   adminBlocklistRef = null;
+  syncUnreadListeners([]); // detach all
   closeAdminChatView();
 }
 
@@ -906,13 +972,22 @@ function renderReports(reportsObj) {
     btnBlockReporter.className = 'btn btn-danger';
     btnBlockReporter.textContent = 'חסום את ' + formatId(report.reporterId);
     btnBlockReporter.addEventListener('click', () =>
-      openBlockModal(reportId, report.reporterDevice, report.reporterId));
+      openBlockModal(reportId, [{ deviceId: report.reporterDevice, numericId: report.reporterId }]));
 
     const btnBlockReported = document.createElement('button');
     btnBlockReported.className = 'btn btn-danger';
     btnBlockReported.textContent = 'חסום את ' + formatId(report.reportedId);
     btnBlockReported.addEventListener('click', () =>
-      openBlockModal(reportId, report.reportedDevice, report.reportedId));
+      openBlockModal(reportId, [{ deviceId: report.reportedDevice, numericId: report.reportedId }]));
+
+    const btnBlockBoth = document.createElement('button');
+    btnBlockBoth.className = 'btn btn-danger';
+    btnBlockBoth.textContent = 'חסום את שניהם';
+    btnBlockBoth.addEventListener('click', () =>
+      openBlockModal(reportId, [
+        { deviceId: report.reporterDevice, numericId: report.reporterId },
+        { deviceId: report.reportedDevice, numericId: report.reportedId },
+      ]));
 
     const btnHandled = document.createElement('button');
     btnHandled.className = 'btn btn-secondary';
@@ -920,7 +995,7 @@ function renderReports(reportsObj) {
     btnHandled.addEventListener('click', () =>
       resolveReport(reportId, { action: 'handled' }));
 
-    actions.append(btnBlockReporter, btnBlockReported, btnHandled);
+    actions.append(btnBlockReporter, btnBlockReported, btnBlockBoth, btnHandled);
     card.appendChild(actions);
 
     reportsListEl.appendChild(card);
@@ -938,19 +1013,20 @@ async function resolveReport(reportId, resolution) {
   }
 }
 
-// ---------- block modal ----------
+// ---------- block modal (single target or both) ----------
 let pendingBlock = null;
 const blockOverlay = document.getElementById('block-reason-overlay');
 const blockTargetIdEl = document.getElementById('block-target-id');
 const blockReasonTextEl = document.getElementById('block-reason-text');
 
-function openBlockModal(reportId, deviceId, numericId) {
-  if (!deviceId || deviceId === 'unknown') {
+function openBlockModal(reportId, targets) {
+  const valid = targets.filter(t => t.deviceId && t.deviceId !== 'unknown');
+  if (valid.length === 0) {
     alert('לא נמצא מזהה מכשיר לחסימה עבור דיווח זה');
     return;
   }
-  pendingBlock = { reportId, deviceId, numericId };
-  blockTargetIdEl.textContent = formatId(numericId);
+  pendingBlock = { reportId, targets: valid };
+  blockTargetIdEl.textContent = valid.map(t => formatId(t.numericId)).join(' + ');
   blockReasonTextEl.value = '';
   blockOverlay.hidden = false;
 }
@@ -962,21 +1038,21 @@ document.getElementById('btn-block-cancel').addEventListener('click', () => {
 
 document.getElementById('btn-block-confirm').addEventListener('click', async () => {
   if (!pendingBlock) return;
-  const { reportId, deviceId, numericId } = pendingBlock;
+  const { reportId, targets } = pendingBlock;
   const reason = blockReasonTextEl.value.trim();
 
   try {
-    await db.ref('blocklist/' + deviceId).set({
+    await Promise.all(targets.map(t => db.ref('blocklist/' + t.deviceId).set({
       blocked: true,
       reason,
       blockedAt: firebase.database.ServerValue.TIMESTAMP,
       canMessageAdmin: true,
-    });
+    })));
     if (reportId) {
       await resolveReport(reportId, {
         action: 'blocked',
-        blockedDeviceId: deviceId,
-        blockedId: numericId,
+        blockedDeviceIds: targets.map(t => t.deviceId),
+        blockedIds: targets.map(t => t.numericId),
         note: reason,
       });
     }
@@ -986,6 +1062,56 @@ document.getElementById('btn-block-confirm').addEventListener('click', async () 
   blockOverlay.hidden = true;
   pendingBlock = null;
 });
+
+// ---------- unread-message tracking for the blocked-users list ----------
+const ADMIN_LASTSEEN_KEY = 'numbers_admin_chat_lastseen';
+const unreadListeners = {}; // deviceId -> { ref, cb }
+const hasUnread = {};       // deviceId -> boolean
+
+function getAdminChatLastSeen(deviceId) {
+  try {
+    const map = JSON.parse(localStorage.getItem(ADMIN_LASTSEEN_KEY) || '{}');
+    return map[deviceId] || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+function setAdminChatLastSeen(deviceId, ts) {
+  try {
+    const map = JSON.parse(localStorage.getItem(ADMIN_LASTSEEN_KEY) || '{}');
+    map[deviceId] = ts;
+    localStorage.setItem(ADMIN_LASTSEEN_KEY, JSON.stringify(map));
+  } catch (e) { /* ignore */ }
+}
+
+function syncUnreadListeners(deviceIds) {
+  Object.keys(unreadListeners).forEach((id) => {
+    if (deviceIds.indexOf(id) === -1) {
+      unreadListeners[id].ref.off('value', unreadListeners[id].cb);
+      delete unreadListeners[id];
+      delete hasUnread[id];
+    }
+  });
+
+  deviceIds.forEach((id) => {
+    if (unreadListeners[id]) return;
+    const ref = db.ref('adminChats/' + id + '/messages').limitToLast(1);
+    const cb = (snap) => {
+      const val = snap.val();
+      let unread = false;
+      if (val) {
+        const msg = Object.values(val)[0];
+        if (msg && msg.sender === 'user' && (msg.timestamp || 0) > getAdminChatLastSeen(id)) {
+          unread = true;
+        }
+      }
+      hasUnread[id] = unread;
+      if (adminDashboardActive) renderBlocked(currentBlocklistObj);
+    };
+    ref.on('value', cb);
+    unreadListeners[id] = { ref, cb };
+  });
+}
 
 // ---------- blocked users list ----------
 function renderBlocked(blocklistObj) {
@@ -1030,6 +1156,12 @@ function renderBlocked(blocklistObj) {
     const btnChat = document.createElement('button');
     btnChat.className = 'btn btn-primary';
     btnChat.textContent = 'פתח שיחה';
+    if (hasUnread[deviceId]) {
+      const dot = document.createElement('span');
+      dot.className = 'unread-dot';
+      dot.setAttribute('aria-label', 'הודעות חדשות');
+      btnChat.appendChild(dot);
+    }
     btnChat.addEventListener('click', () => openAdminChatView(deviceId));
 
     actions.append(btnUnblock, btnChat);
@@ -1070,6 +1202,11 @@ function openAdminChatView(deviceId) {
   adminChatTargetEl.textContent = deviceId;
   adminChatMessagesEl.innerHTML = '';
 
+  // clear the unread dot immediately, and keep it cleared as new
+  // messages arrive while this conversation is open
+  setAdminChatLastSeen(deviceId, Date.now());
+  hasUnread[deviceId] = false;
+
   if (adminChatRef && adminChatCb) adminChatRef.off('child_added', adminChatCb);
   adminChatRef = db.ref('adminChats/' + deviceId + '/messages');
   adminChatCb = (snap) => {
@@ -1080,6 +1217,9 @@ function openAdminChatView(deviceId) {
     div.textContent = m.text;
     adminChatMessagesEl.appendChild(div);
     adminChatMessagesEl.scrollTop = adminChatMessagesEl.scrollHeight;
+    if (m.sender === 'user' && adminChatDeviceId === deviceId) {
+      setAdminChatLastSeen(deviceId, m.timestamp || Date.now());
+    }
   };
   adminChatRef.on('child_added', adminChatCb);
 }
