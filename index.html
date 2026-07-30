@@ -1,59 +1,117 @@
 <!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>צ'אט אנונימי</title>
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>NUMBERS — anonymous chat</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
-<div class="container">
+<div class="static-overlay" aria-hidden="true"></div>
 
-    <h1>💬 צ'אט אנונימי</h1>
+<!-- ================= HOME SCREEN ================= -->
+<main id="screen-home" class="screen active">
 
-    <div class="box">
-        <h3>ה-ID שלך</h3>
-        <div id="myId" class="id">
-            טוען...
-        </div>
+  <header class="brand">
+    <span class="brand-dot"></span>
+    <span class="brand-name">NUMBERS</span>
+  </header>
 
-        <button id="copyId">
-            העתק ID
-        </button>
+  <section class="id-card">
+    <p class="id-label">your signal</p>
+    <div class="id-display" id="my-id">— — — — — — —</div>
+    <p class="id-hint">share this number so someone can call you</p>
+  </section>
+
+  <section class="actions">
+    <button id="btn-random" class="btn btn-primary">
+      <span class="dial-mini" aria-hidden="true"></span>
+      Find a random signal
+    </button>
+
+    <div class="divider"><span>or dial direct</span></div>
+
+    <form id="form-connect" class="connect-form" autocomplete="off">
+      <input
+        id="input-partner-id"
+        class="id-input"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        maxlength="7"
+        placeholder="0000000"
+        aria-label="Partner ID"
+      >
+      <button type="submit" class="btn btn-secondary">Connect</button>
+    </form>
+  </section>
+
+  <p id="home-status" class="status-line" role="status"></p>
+
+  <footer class="footnote">
+    No accounts. No history kept after you leave. Just numbers, briefly connected.
+  </footer>
+</main>
+
+<!-- ================= SEARCHING SCREEN ================= -->
+<main id="screen-search" class="screen">
+  <div class="dial-wrap">
+    <div class="dial" id="dial">
+      <div class="dial-face">
+        <div class="dial-needle"></div>
+        <div class="dial-center" id="search-id-center">— — —</div>
+      </div>
     </div>
+  </div>
+  <p class="scan-text" id="scan-text">scanning frequencies…</p>
+  <button id="btn-cancel-search" class="btn btn-ghost">Cancel</button>
+</main>
 
-
-    <div class="box">
-
-        <button id="randomChat">
-            🔎 מצא מישהו אקראי
-        </button>
-
-        <p id="status"></p>
-
-    </div>
-
-
-    <div class="box">
-
-        <input 
-            id="targetId"
-            placeholder="הכנס ID של משתמש">
-
-        <button id="connect">
-            התחבר
-        </button>
-
-    </div>
-
-
+<!-- ================= INCOMING INVITE TOAST ================= -->
+<div id="invite-toast" class="invite-toast" hidden>
+  <p><span id="invite-from">0000000</span> is calling you.</p>
+  <div class="invite-actions">
+    <button id="btn-decline" class="btn btn-ghost small">Ignore</button>
+    <button id="btn-accept" class="btn btn-primary small">Answer</button>
+  </div>
 </div>
 
+<!-- ================= CHAT SCREEN ================= -->
+<main id="screen-chat" class="screen">
+  <header class="chat-header">
+    <button id="btn-leave" class="icon-btn" aria-label="Leave chat">←</button>
+    <div class="chat-peer">
+      <span class="peer-label">connected to</span>
+      <span class="peer-id" id="peer-id">0000000</span>
+    </div>
+    <span class="live-dot" id="peer-status" title="connection status"></span>
+  </header>
 
-<script type="module" src="firebase.js"></script>
-<script type="module" src="app.js"></script>
+  <div class="messages" id="messages"></div>
 
+  <p class="typing-indicator" id="typing-indicator" hidden>signal typing…</p>
+
+  <form id="form-message" class="message-form" autocomplete="off">
+    <input
+      id="input-message"
+      class="message-input"
+      type="text"
+      maxlength="2000"
+      placeholder="transmit a message…"
+      aria-label="Message"
+    >
+    <button type="submit" class="btn btn-primary send-btn" aria-label="Send">▲</button>
+  </form>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
