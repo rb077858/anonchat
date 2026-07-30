@@ -1,5 +1,5 @@
 /* ============================================================
-   מספרים — NUMBERS, anonymous chat
+   צ'אט אנונימי — Anonymous Chat
    All app logic lives here: device identity, presence, random
    matchmaking, connect-by-ID, the chat room, and the settings /
    reset flow.
