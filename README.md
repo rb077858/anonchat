@@ -59,22 +59,80 @@ database rules in the next step.
    `firebase-rules.json` from this repo.
 3. Click **Publish**.
 
-**What these rules do (and don't do):** since this app has no login system,
-the rules can't check "who" is writing — only "does the shape of the data
-look valid". They enforce:
+**What these rules do (and don't do):** since this app has no login system
+for regular users, the rules can't check "who" is writing — only "does the
+shape of the data look valid". They enforce:
 - IDs must be exactly 6 digits.
 - Messages must be short (≤2000 chars) and have the right fields.
 - A user can only write invites addressed to someone else, not to themself.
+- A blocked device (see below) cannot join a room, register for random
+  matching, send an invite, or send a message — enforced server-side, not
+  just hidden in the UI.
 - Random/junk fields are rejected.
 
 They do **not** prevent someone from writing crafted API calls directly
 against your database (e.g. spamming messages into a room they know the ID
-of, or flooding presence data). That's an inherent limitation of a fully
-anonymous, login-free app. If you outgrow this, add Firebase Anonymous Auth
-(still no visible login screen to the user) and tighten rules to
-`auth != null`, or add Cloud Functions to rate-limit writes.
+of). That's an inherent limitation of a login-free app for regular users.
 
-## 4. Test locally (optional but recommended)
+## 4. Set up your admin account (for reports & blocking)
+
+The moderation panel (reviewing reports, blocking abusive devices, messaging
+blocked users) is protected by a **real Firebase account that only you
+control** — not by the "137925" code alone. That code just opens the
+sign-in box in the app; the password is what actually protects the panel.
+
+1. In the Firebase console, go to **Build → Authentication → Get started**,
+   then enable the **Email/Password** sign-in provider.
+2. Go to the **Users** tab → **Add user** → enter an email and password
+   you'll remember (this does not need to be a real inbox — it's just your
+   admin login, e.g. `admin@yourdomain.example`).
+3. Click on the new user and copy their **User UID** (a long string like
+   `a1B2c3D4e5F6...`).
+4. Paste that UID into **`firebase-config.js`**, replacing
+   `REPLACE_WITH_YOUR_ADMIN_UID`.
+5. Open **`firebase-rules.json`** and replace **every** occurrence of
+   `REPLACE_WITH_YOUR_ADMIN_UID` (there are 5) with that same UID, then
+   re-paste the whole file into the Rules editor in the console and
+   **Publish** again.
+
+To open the admin panel in the app: on the home screen, type **137925**
+into the "connect by ID" field and press Connect. A sign-in box appears —
+enter the email/password from step 2. If they match your admin UID, you'll
+see the dashboard; anyone else who happens to type that number just gets a
+normal "invalid login" error, because they don't have your password.
+
+**Being upfront about the limits here:** without a backend server, this is
+the strongest access control a static site can offer — genuine password
+protection enforced by Firebase's servers, not just hidden client code. It
+is not, however, hardened against a determined, technical attacker (e.g.
+password guessing against your one account has no built-in lockout on the
+free tier). Use a strong, unique password for the admin account.
+
+## How reporting & blocking work
+
+- Inside any chat, a small 🚩 icon in the header lets either person report
+  the conversation (tap once to arm it, tap again to confirm — prevents
+  accidental taps).
+- The moment a report is filed, **both** people are immediately removed
+  from the chat and **both** get a brand-new 6-digit number — the app tells
+  each of them their number changed. This happens regardless of who was at
+  fault; it's an instant safety measure, not a verdict.
+- The report itself (including a copy of the last ~50 messages) is queued
+  for you to review in the admin panel.
+- In the panel, each report lets you either mark it **handled** (no action)
+  or **block** one of the two people involved, optionally leaving a note
+  explaining why.
+- Blocking is tied to the **device**, not the number — so even if a blocked
+  person resets their number (or it gets rotated by another report), they
+  stay blocked. A blocked device can no longer start random chats, connect
+  by ID, or be reached by invites.
+- A blocked person still sees a **"contact admin"** option on their home
+  screen, opening a private one-on-one channel with you. You can reply from
+  the **"משתמשים חסומים"** (Blocked users) tab in the panel, and you can
+  also mute that channel per-person if needed. Unblocking restores full
+  access at any time.
+
+## 5. Test locally (optional but recommended)
 
 Any static file server works, e.g.:
 
@@ -88,7 +146,7 @@ Open the page in two different browsers (or one normal + one incognito
 window, since the ID is stored in `localStorage` per browser profile) to
 simulate two devices talking to each other.
 
-## 5. Deploy to GitHub Pages
+## 6. Deploy to GitHub Pages
 
 1. Create a new GitHub repository and push these files to it:
    ```bash
@@ -149,17 +207,35 @@ Two more things worth knowing:
     online:   boolean         (presence, backed by onDisconnect)
     lastSeen: timestamp
     status:   "idle" | "searching" | "chatting"
-    invites/{roomId}: { from, timestamp }   (a pending direct-connect call)
+    invites/{roomId}: { from, fromDevice, timestamp }  (pending direct-connect call)
 
 /matchmaking/waiting
-    { id, roomId } | null      (single shared slot used to pair two
-                                random searchers via a Firebase transaction)
+    { id, roomId, deviceId } | null   (single shared slot used to pair two
+                                       random searchers via a transaction)
 
 /rooms/{roomId}
-    participants/{id}: true
-    messages/{pushId}: { sender, text, timestamp }
+    participants/{id}: { deviceId, joinedAt }
+    messages/{pushId}: { sender, senderDevice, text, timestamp }
     typing/{id}: boolean
     declined: boolean          (set when a direct call is declined)
+    reported: boolean          (set the instant either side files a report —
+                                 both clients react to this and auto-rotate)
+
+/reports/{reportId}                          (admin-read only)
+    roomId, reporterId, reporterDevice, reportedId, reportedDevice
+    timestamp, status: "pending" | "handled" | "actioned"
+    messages: [ {sender, text, timestamp}, ... ]   (snapshot taken at report time)
+    resolution: { action, note, blockedDeviceId, at }
+
+/blocklist/{deviceId}                        (list is admin-read only;
+                                               each entry is self-checkable)
+    blocked: boolean
+    reason: string
+    blockedAt: timestamp
+    canMessageAdmin: boolean
+
+/adminChats/{deviceId}/messages/{pushId}
+    { sender: "user" | "admin", text, timestamp }
 ```
 
 **Random matching** uses one shared node (`matchmaking/waiting`) and a
@@ -172,15 +248,29 @@ both IDs, and drops an "invite" in the target's own node; the target's
 device is always listening on its own invites and pops up an Accept /
 Ignore toast.
 
+**Reporting** copies a snapshot of the room's messages into `/reports`,
+then flips `rooms/{roomId}/reported` to `true`. Both participants' clients
+are already listening on that flag (it's part of joining any chat), so
+both react independently and simultaneously: leave the room, wipe their
+old number, generate a fresh one, and land back on the home screen with a
+notice.
+
 Rooms are deleted once both participants have left, so no message history
-survives after a chat ends.
+survives after a chat ends (aside from the snapshot copied into a report,
+if one was filed).
 
 ## Known limitations
 
 - Anyone with your database URL can, in principle, write directly to it
   within what the rules allow (see the rules note above) — there's no way
-  around this without adding some form of auth.
+  around this for regular (login-free) users without changing the app's
+  core "no login" design.
 - IDs are stored in `localStorage`, so clearing site data or switching
-  browsers gives a device a new ID.
-- No push notifications — matching and invites only work while the tab is
-  open.
+  browsers gives a device a new ID *and* a new device fingerprint — a
+  clever way around a block, though it does cost the ability to be found
+  by a previously-shared number.
+- No push notifications — matching, invites, and admin messages only
+  arrive while the tab is open.
+- The admin password has no built-in lockout after repeated failed
+  attempts (a Firebase free-tier constraint) — use a strong, unique
+  password for that one account.
