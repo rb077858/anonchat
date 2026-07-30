@@ -1,5 +1,5 @@
 /* ============================================================
-   מספרים — NUMBERS, anonymous chat
+   צ'אט אנונימי — Anonymous Chat
    Theme: numbers-station radio. Dark set, amber signal glow,
    monospace digits standing in for the whole identity system.
    RTL / Hebrew interface.
@@ -96,10 +96,13 @@ button {
 .brand-name {
   font-family: var(--mono);
   font-weight: 600;
-  letter-spacing: 0.1em;
-  font-size: 15px;
+  letter-spacing: 0.05em;
+  font-size: 14px;
   color: var(--text-dim);
   flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .settings-btn {
   font-size: 18px;
