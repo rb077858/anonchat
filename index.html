@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>צ'אט אנונימי</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>💬 צ'אט אנונימי</h1>
+
+    <div class="box">
+        <h3>ה-ID שלך</h3>
+        <div id="myId" class="id">
+            טוען...
+        </div>
+
+        <button id="copyId">
+            העתק ID
+        </button>
+    </div>
+
+
+    <div class="box">
+
+        <button id="randomChat">
+            🔎 מצא מישהו אקראי
+        </button>
+
+        <p id="status"></p>
+
+    </div>
+
+
+    <div class="box">
+
+        <input 
+            id="targetId"
+            placeholder="הכנס ID של משתמש">
+
+        <button id="connect">
+            התחבר
+        </button>
+
+    </div>
+
+
+</div>
+
+
+<script type="module" src="firebase.js"></script>
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
