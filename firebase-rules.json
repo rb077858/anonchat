@@ -15,10 +15,15 @@
         "invites": {
           "$roomId": {
             ".write": "newData.exists() ? newData.child('from').val() !== $uid : true",
-            ".validate": "newData.hasChildren(['from','timestamp'])",
-            "from":      { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
+            ".validate": "newData.hasChildren(['from','fromDevice','timestamp'])",
+            "from": {
+              ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)"
+            },
+            "fromDevice": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64 && root.child('blocklist').child(newData.val()).child('blocked').val() != true"
+            },
             "timestamp": { ".validate": "newData.isNumber()" },
-            "$other":    { ".validate": false }
+            "$other": { ".validate": false }
           }
         },
 
@@ -30,7 +35,7 @@
       "waiting": {
         ".read": true,
         ".write": true,
-        ".validate": "newData.val() === null || (newData.hasChildren(['id','roomId']) && newData.child('id').val().matches(/^[0-9]{6}$/))"
+        ".validate": "newData.val() === null || (newData.hasChildren(['id','roomId','deviceId']) && newData.child('id').val().matches(/^[0-9]{6}$/) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true)"
       }
     },
 
@@ -39,30 +44,80 @@
         ".read": true,
 
         "participants": {
-          ".write": true,
           "$uid": {
-            ".validate": "$uid.matches(/^[0-9]{6}$/) && newData.isBoolean()"
+            ".write": true,
+            ".validate": "$uid.matches(/^[0-9]{6}$/) && newData.hasChildren(['deviceId','joinedAt']) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true",
+            "deviceId": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64" },
+            "joinedAt": { ".validate": "newData.isNumber()" }
           }
         },
 
         "messages": {
           ".write": true,
           "$msgId": {
-            ".validate": "newData.hasChildren(['sender','text','timestamp'])",
-            "sender":    { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
-            "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
-            "timestamp": { ".validate": "newData.isNumber()" },
-            "$other":    { ".validate": false }
+            ".validate": "newData.hasChildren(['sender','senderDevice','text','timestamp']) && root.child('blocklist').child(newData.child('senderDevice').val()).child('blocked').val() != true",
+            "sender":       { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
+            "senderDevice": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64" },
+            "text":         { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
+            "timestamp":    { ".validate": "newData.isNumber()" },
+            "$other":       { ".validate": false }
           }
         },
 
         "typing": {
-          ".write": true,
-          "$uid": { ".validate": "newData.isBoolean()" }
+          "$uid": { ".write": true, ".validate": "newData.isBoolean()" }
         },
 
         "declined": { ".write": true, ".validate": "newData.isBoolean()" },
-        "canceled": { ".write": true, ".validate": "newData.isBoolean()" }
+        "canceled": { ".write": true, ".validate": "newData.isBoolean()" },
+        "reported": { ".write": true, ".validate": "newData.isBoolean()" }
+      }
+    },
+
+    "reports": {
+      ".read": "auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'",
+      ".indexOn": ["status", "timestamp"],
+      "$reportId": {
+        ".write": "(auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID') || !data.exists()",
+        ".validate": "newData.hasChildren(['roomId','reporterId','reporterDevice','reportedId','reportedDevice','timestamp','status'])",
+        "roomId":         { ".validate": "newData.isString()" },
+        "reporterId":     { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
+        "reporterDevice": { ".validate": "newData.isString()" },
+        "reportedId":     { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
+        "reportedDevice": { ".validate": "newData.isString()" },
+        "timestamp":      { ".validate": "newData.isNumber()" },
+        "status":         { ".validate": "newData.isString()" },
+        "messages":       { ".validate": true },
+        "resolution":     { ".validate": true }
+      }
+    },
+
+    "blocklist": {
+      ".read": "auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'",
+      "$deviceId": {
+        ".read": true,
+        ".write": "auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'",
+        ".validate": "newData.val() === null || newData.hasChildren(['blocked'])",
+        "blocked":         { ".validate": "newData.isBoolean()" },
+        "reason":          { ".validate": "newData.isString() && newData.val().length <= 500" },
+        "blockedAt":       { ".validate": "newData.isNumber()" },
+        "canMessageAdmin": { ".validate": "newData.isBoolean()" }
+      }
+    },
+
+    "adminChats": {
+      "$deviceId": {
+        ".read": true,
+        "messages": {
+          ".write": true,
+          "$msgId": {
+            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' || (newData.child('sender').val() == 'admin' && auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'))",
+            "sender":    { ".validate": "newData.isString()" },
+            "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
+            "timestamp": { ".validate": "newData.isNumber()" },
+            "$other":    { ".validate": false }
+          }
+        }
       }
     }
   }
