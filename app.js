@@ -1,15 +1,20 @@
 /* ============================================================
-   NUMBERS — anonymous chat
+   מספרים — NUMBERS, anonymous chat
    All app logic lives here: device identity, presence, random
-   matchmaking, connect-by-ID, and the realtime chat room itself.
+   matchmaking, connect-by-ID, the chat room, and the settings /
+   reset flow.
    ============================================================ */
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+const ID_LENGTH = 6;
+const ID_REGEX = /^[0-9]{6}$/;
+
 // ---------- DOM ----------
 const screens = {
   home: document.getElementById('screen-home'),
+  settings: document.getElementById('screen-settings'),
   search: document.getElementById('screen-search'),
   chat: document.getElementById('screen-chat'),
 };
@@ -21,6 +26,12 @@ const inputPartner  = document.getElementById('input-partner-id');
 const btnCancel     = document.getElementById('btn-cancel-search');
 const searchIdCenter= document.getElementById('search-id-center');
 const scanText      = document.getElementById('scan-text');
+
+const btnSettings     = document.getElementById('btn-settings');
+const btnSettingsBack = document.getElementById('btn-settings-back');
+const settingsIdEl    = document.getElementById('settings-id');
+const btnResetId      = document.getElementById('btn-reset-id');
+const settingsStatusEl= document.getElementById('settings-status');
 
 const inviteToast   = document.getElementById('invite-toast');
 const inviteFromEl  = document.getElementById('invite-from');
@@ -66,10 +77,10 @@ function setHomeStatus(msg, kind) {
 }
 
 // ============================================================
-// 1. DEVICE IDENTITY — a persisted random 7-digit numeric ID
+// 1. DEVICE IDENTITY — a persisted random 6-digit numeric ID
 // ============================================================
-function randomSevenDigitId() {
-  return String(Math.floor(1000000 + Math.random() * 9000000));
+function randomSixDigitId() {
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 async function idIsTaken(id) {
@@ -77,18 +88,22 @@ async function idIsTaken(id) {
   return snap.exists();
 }
 
-async function getOrCreateMyId() {
-  const stored = localStorage.getItem('numbers_my_id');
-  if (stored && /^[0-9]{7}$/.test(stored)) return stored;
-
-  let candidate = randomSevenDigitId();
+async function generateFreshId() {
+  let candidate = randomSixDigitId();
   let attempts = 0;
   while (await idIsTaken(candidate) && attempts < 6) {
-    candidate = randomSevenDigitId();
+    candidate = randomSixDigitId();
     attempts++;
   }
-  localStorage.setItem('numbers_my_id', candidate);
   return candidate;
+}
+
+async function getOrCreateMyId() {
+  const stored = localStorage.getItem('numbers_my_id');
+  if (stored && ID_REGEX.test(stored)) return stored;
+  const fresh = await generateFreshId();
+  localStorage.setItem('numbers_my_id', fresh);
+  return fresh;
 }
 
 function formatId(id) {
@@ -98,22 +113,22 @@ function formatId(id) {
 // ============================================================
 // 2. PRESENCE
 // ============================================================
-function initPresence() {
+function applyPresence() {
   const myRef = db.ref('users/' + myId);
-  const connectedRef = db.ref('.info/connected');
+  myRef.onDisconnect().update({
+    online: false,
+    lastSeen: firebase.database.ServerValue.TIMESTAMP,
+  });
+  myRef.update({
+    online: true,
+    lastSeen: firebase.database.ServerValue.TIMESTAMP,
+    status: state,
+  });
+}
 
-  connectedRef.on('value', (snap) => {
-    if (snap.val() === true) {
-      myRef.onDisconnect().update({
-        online: false,
-        lastSeen: firebase.database.ServerValue.TIMESTAMP,
-      });
-      myRef.update({
-        online: true,
-        lastSeen: firebase.database.ServerValue.TIMESTAMP,
-        status: state,
-      });
-    }
+function initPresence() {
+  db.ref('.info/connected').on('value', (snap) => {
+    if (snap.val() === true) applyPresence();
   });
 }
 
@@ -125,15 +140,20 @@ function setMyStatus(status) {
 // ============================================================
 // 3. INCOMING INVITES (connect-by-ID)
 // ============================================================
+let invitesRef = null;
+let invitesCb = null;
+
 function listenForInvites() {
-  const invitesRef = db.ref('users/' + myId + '/invites');
-  invitesRef.on('child_added', (snap) => {
+  if (invitesRef && invitesCb) invitesRef.off('child_added', invitesCb);
+
+  invitesRef = db.ref('users/' + myId + '/invites');
+  invitesCb = (snap) => {
     const invite = snap.val();
     const roomId = snap.key;
     if (!invite || !invite.from) return;
 
     if (state !== 'idle') {
-      // already busy — politely ignore, remove so it doesn't pile up
+      // כבר בשיחה — מתעלמים בשקט כדי שלא ייערמו הזמנות
       db.ref('users/' + myId + '/invites/' + roomId).remove();
       return;
     }
@@ -142,14 +162,15 @@ function listenForInvites() {
     inviteFromEl.textContent = formatId(invite.from);
     inviteToast.hidden = false;
 
-    // if the caller cancels before we respond, hide the toast
+    // אם המתקשר מבטל לפני שעונים, נסתיר את ההתראה
     db.ref('rooms/' + roomId + '/canceled').on('value', (s) => {
       if (s.val() === true && pendingInviteRoomId === roomId) {
         inviteToast.hidden = true;
         pendingInviteRoomId = null;
       }
     });
-  });
+  };
+  invitesRef.on('child_added', invitesCb);
 }
 
 btnAccept.addEventListener('click', async () => {
@@ -159,7 +180,7 @@ btnAccept.addEventListener('click', async () => {
   const invite = snap.val();
   inviteToast.hidden = true;
   pendingInviteRoomId = null;
-  if (!invite) return; // invite was withdrawn
+  if (!invite) return; // ההזמנה בוטלה בינתיים
 
   await db.ref('rooms/' + roomId + '/participants/' + myId).set(true);
   db.ref('users/' + myId + '/invites/' + roomId).remove();
@@ -182,19 +203,19 @@ formConnect.addEventListener('submit', async (e) => {
   e.preventDefault();
   const targetId = inputPartner.value.trim();
 
-  if (!/^[0-9]{7}$/.test(targetId)) {
-    setHomeStatus('enter a valid 7-digit ID', 'error');
+  if (!ID_REGEX.test(targetId)) {
+    setHomeStatus('הזן/י מספר תקין בן 6 ספרות', 'error');
     return;
   }
   if (targetId === myId) {
-    setHomeStatus("that's your own signal", 'error');
+    setHomeStatus('זה האות שלך', 'error');
     return;
   }
 
-  setHomeStatus('checking signal…');
+  setHomeStatus('בודק/ת אות…');
   const snap = await db.ref('users/' + targetId + '/online').once('value');
   if (snap.val() !== true) {
-    setHomeStatus('that signal is offline', 'error');
+    setHomeStatus('האות הזה לא מחובר', 'error');
     return;
   }
 
@@ -211,14 +232,14 @@ formConnect.addEventListener('submit', async (e) => {
 });
 
 inputPartner.addEventListener('input', () => {
-  inputPartner.value = inputPartner.value.replace(/\D/g, '').slice(0, 7);
+  inputPartner.value = inputPartner.value.replace(/\D/g, '').slice(0, ID_LENGTH);
 });
 
 // ============================================================
 // 5. RANDOM MATCHMAKING
 // ============================================================
 btnRandom.addEventListener('click', startRandomSearch);
-btnCancel.addEventListener('click', cancelRandomSearch);
+btnCancel.addEventListener('click', () => cancelRandomSearch());
 
 let myWaitingRoomId = null;
 
@@ -226,7 +247,7 @@ function startRandomSearch() {
   setMyStatus('searching');
   showScreen('search');
   searchIdCenter.textContent = formatId(myId);
-  scanText.textContent = 'scanning frequencies…';
+  scanText.textContent = 'סורק תדרים…';
 
   const waitingRef = db.ref('matchmaking/waiting');
   let matchedWaiter = null;
@@ -234,32 +255,29 @@ function startRandomSearch() {
   waitingRef.transaction((current) => {
     matchedWaiter = null;
     if (current === null) {
-      // nobody waiting — I become the waiter
+      // אף אחד לא ממתין — אני הופך/ת לממתין/ה
       myWaitingRoomId = myId + '_' + Date.now();
       return { id: myId, roomId: myWaitingRoomId };
     }
     if (current.id === myId) {
-      // already registered as waiter (retry safety)
       return current;
     }
-    // someone else is waiting — that's my match, claim it
+    // מישהו כבר ממתין — זו ההתאמה שלי
     matchedWaiter = current;
     return null;
   }).then(async ({ committed }) => {
     if (!committed) {
-      setHomeStatus('could not reach the signal, try again', 'error');
+      setHomeStatus('לא הצלחנו להתחבר, נסה/י שוב', 'error');
       showScreen('home');
       setMyStatus('idle');
       return;
     }
 
     if (matchedWaiter) {
-      // I matched with someone already waiting
       const roomId = matchedWaiter.roomId;
       await db.ref('rooms/' + roomId + '/participants/' + myId).set(true);
       joinChatRoom(roomId, matchedWaiter.id);
     } else {
-      // I'm now the one waiting — listen for a partner to join my room
       await db.ref('rooms/' + myWaitingRoomId + '/participants/' + myId).set(true);
       const participantsRef = db.ref('rooms/' + myWaitingRoomId + '/participants');
       const onPartner = (snap) => {
@@ -274,14 +292,13 @@ function startRandomSearch() {
       participantsRef.on('value', onPartner);
       activeListeners.push({ ref: participantsRef, event: 'value', cb: onPartner });
 
-      // give up after 45s of no match
       searchTimeoutHandle = setTimeout(() => {
         participantsRef.off('value', onPartner);
-        cancelRandomSearch('no one answered — try again');
+        cancelRandomSearch('אף אחד לא ענה — נסה/י שוב');
       }, 45000);
     }
   }).catch(() => {
-    setHomeStatus('connection error, try again', 'error');
+    setHomeStatus('שגיאת התחברות, נסה/י שוב', 'error');
     showScreen('home');
     setMyStatus('idle');
   });
@@ -291,7 +308,6 @@ function cancelRandomSearch(message) {
   clearTimeout(searchTimeoutHandle);
   clearAllListeners();
 
-  // release the shared waiting slot only if it's still ours
   db.ref('matchmaking/waiting').transaction((current) => {
     if (current && current.id === myId) return null;
     return current;
@@ -332,11 +348,10 @@ function joinChatRoom(roomId, peerId, opts = {}) {
   showScreen('chat');
 
   appendMessage(
-    opts.calling ? 'calling ' + peerId + '…' : 'connected to ' + peerId,
+    opts.calling ? 'מתקשר/ת אל ' + formatId(peerId) + '…' : 'מחובר/ת אל ' + formatId(peerId),
     'system'
   );
 
-  // incoming messages
   const messagesRef = db.ref('rooms/' + roomId + '/messages');
   track(messagesRef, 'child_added', (snap) => {
     const m = snap.val();
@@ -344,30 +359,27 @@ function joinChatRoom(roomId, peerId, opts = {}) {
     appendMessage(m.text, m.sender === myId ? 'me' : 'them');
   });
 
-  // peer online/offline dot
   const peerOnlineRef = db.ref('users/' + peerId + '/online');
   track(peerOnlineRef, 'value', (snap) => {
     peerStatusEl.classList.toggle('offline', snap.val() !== true);
   });
 
-  // peer accepted a call I placed
   if (opts.calling) {
     const partnerJoinedRef = db.ref('rooms/' + roomId + '/participants/' + peerId);
     track(partnerJoinedRef, 'value', (snap) => {
       if (snap.val() === true) {
-        appendMessage(peerId + ' answered', 'system');
+        appendMessage(formatId(peerId) + ' ענה/תה', 'system');
       }
     });
     const declinedRef = db.ref('rooms/' + roomId + '/declined');
     track(declinedRef, 'value', (snap) => {
       if (snap.val() === true) {
-        appendMessage(peerId + ' declined the call', 'system');
+        appendMessage(formatId(peerId) + ' דחה/תה את השיחה', 'system');
         setTimeout(() => leaveChat(), 1500);
       }
     });
   }
 
-  // typing indicator from peer
   const typingRef = db.ref('rooms/' + roomId + '/typing/' + peerId);
   track(typingRef, 'value', (snap) => {
     typingIndicator.hidden = snap.val() !== true;
@@ -425,7 +437,76 @@ async function leaveChat() {
 }
 
 // ============================================================
-// 7. BOOT
+// 7. SETTINGS / RESET
+// ============================================================
+btnSettings.addEventListener('click', () => {
+  settingsIdEl.textContent = formatId(myId);
+  setSettingsStatus('');
+  disarmReset();
+  showScreen('settings');
+});
+
+btnSettingsBack.addEventListener('click', () => showScreen('home'));
+
+function setSettingsStatus(msg, kind) {
+  settingsStatusEl.textContent = msg || '';
+  settingsStatusEl.className = 'status-line' + (kind ? ' ' + kind : '');
+}
+
+let resetArmed = false;
+let resetArmTimeout = null;
+
+function disarmReset() {
+  resetArmed = false;
+  clearTimeout(resetArmTimeout);
+  btnResetId.textContent = 'אפס מספר';
+  btnResetId.classList.remove('armed');
+}
+
+btnResetId.addEventListener('click', async () => {
+  if (!resetArmed) {
+    resetArmed = true;
+    btnResetId.textContent = 'לחצו שוב לאישור';
+    btnResetId.classList.add('armed');
+    resetArmTimeout = setTimeout(disarmReset, 4000);
+    return;
+  }
+  disarmReset();
+  await performReset();
+});
+
+async function performReset() {
+  btnResetId.disabled = true;
+  setSettingsStatus('מאפס…');
+
+  // אם באמצע שיחה או חיפוש, יוצאים ממנו קודם
+  if (currentRoomId) await leaveChat();
+  if (state === 'searching') cancelRandomSearch();
+  clearAllListeners();
+
+  const oldId = myId;
+  try {
+    await db.ref('users/' + oldId).remove();
+  } catch (e) {
+    // אם לא הצלחנו למחוק את הרשומה הישנה זה בסדר, פשוט נזוז הלאה
+  }
+
+  localStorage.removeItem('numbers_my_id');
+  myId = await generateFreshId();
+  localStorage.setItem('numbers_my_id', myId);
+
+  myIdEl.textContent = formatId(myId);
+  settingsIdEl.textContent = formatId(myId);
+  applyPresence();
+  listenForInvites();
+
+  btnResetId.disabled = false;
+  setSettingsStatus('המספר אופס בהצלחה', 'ok');
+  setTimeout(() => showScreen('home'), 1200);
+}
+
+// ============================================================
+// 8. BOOT
 // ============================================================
 (async function init() {
   myId = await getOrCreateMyId();
