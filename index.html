@@ -11,7 +11,7 @@
 <!-- ?v=N is a cache-buster: bump this number every time you edit style.css/app.js
      and redeploy, so phones and CDNs are forced to fetch the new file instead
      of serving a stale cached copy. -->
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 
@@ -124,6 +124,21 @@
   </div>
 </div>
 
+<!-- ================= REPORT CONFIRM OVERLAY ================= -->
+<div id="report-confirm-overlay" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <h2 class="settings-title">לדווח על השיחה?</h2>
+    <p class="settings-text">
+      שני הצדדים ייצאו מהצ'אט מיד ושניכם תקבלו מספר חדש. הדיווח יישלח
+      לבדיקת המנהל.
+    </p>
+    <div class="invite-actions">
+      <button id="btn-report-cancel" class="btn btn-ghost small">ביטול</button>
+      <button id="btn-report-confirm" class="btn btn-danger small">דיווח</button>
+    </div>
+  </div>
+</div>
+
 <!-- ================= CHAT SCREEN ================= -->
 <main id="screen-chat" class="screen">
   <header class="chat-header">
@@ -200,10 +215,11 @@
 <!-- ================= ADMIN DASHBOARD ================= -->
 <main id="screen-admin" class="screen">
   <header class="chat-header">
-    <button id="btn-admin-logout" class="icon-btn" aria-label="יציאה">→</button>
+    <button id="btn-admin-back" class="icon-btn" aria-label="חזרה">→</button>
     <div class="chat-peer">
       <span class="peer-label">לוח ניהול</span>
     </div>
+    <button id="btn-admin-signout" class="icon-btn" aria-label="התנתקות" title="התנתקות">⏻</button>
   </header>
 
   <div class="tab-bar">
@@ -256,7 +272,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="firebase-config.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="firebase-config.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
