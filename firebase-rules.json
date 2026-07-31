@@ -75,10 +75,10 @@
     },
 
     "reports": {
-      ".read": "auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'",
+      ".read": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
       ".indexOn": ["status", "timestamp"],
       "$reportId": {
-        ".write": "(auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID') || !data.exists()",
+        ".write": "(auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2') || !data.exists()",
         ".validate": "newData.hasChildren(['roomId','reporterId','reporterDevice','reportedId','reportedDevice','timestamp','status'])",
         "roomId":         { ".validate": "newData.isString()" },
         "reporterId":     { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
@@ -93,10 +93,10 @@
     },
 
     "blocklist": {
-      ".read": "auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'",
+      ".read": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
       "$deviceId": {
         ".read": true,
-        ".write": "auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'",
+        ".write": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
         ".validate": "newData.val() === null || newData.hasChildren(['blocked'])",
         "blocked":         { ".validate": "newData.isBoolean()" },
         "reason":          { ".validate": "newData.isString() && newData.val().length <= 500" },
@@ -111,7 +111,7 @@
         "messages": {
           ".write": true,
           "$msgId": {
-            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' || (newData.child('sender').val() == 'admin' && auth != null && auth.uid == 'REPLACE_WITH_YOUR_ADMIN_UID'))",
+            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' || (newData.child('sender').val() == 'admin' && auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'))",
             "sender":    { ".validate": "newData.isString()" },
             "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
             "timestamp": { ".validate": "newData.isNumber()" },
