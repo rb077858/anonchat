@@ -11,7 +11,7 @@
 <!-- ?v=N is a cache-buster: bump this number every time you edit style.css/app.js
      and redeploy, so phones and CDNs are forced to fetch the new file instead
      of serving a stale cached copy. -->
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 
@@ -61,7 +61,7 @@
   <section class="settings-block" id="blocked-notice" hidden>
     <h2 class="settings-title">הגישה שלך הוגבלה</h2>
     <p class="settings-text" id="blocked-reason-text">
-      נחסמת משיחה עם משתמשים אחרים בעקבות דיווח.
+      נחסמת מהאפשרות לשוחח עם משתמשים אחרים.
     </p>
     <button id="btn-open-support" class="btn btn-primary">פנייה למנהל</button>
   </section>
@@ -147,7 +147,9 @@
       <span class="peer-label">מחובר/ת אל</span>
       <span class="peer-id" id="peer-id" dir="ltr">000000</span>
     </div>
+    <span class="admin-badge" id="peer-admin-badge" hidden>🛡 מנהל</span>
     <span class="live-dot" id="peer-status" title="סטטוס חיבור"></span>
+    <button id="btn-admin-reveal" class="icon-btn admin-reveal-btn" aria-label="לחשוף שאני מנהל" title="לחשוף שאני מנהל" hidden>🛡</button>
     <button id="btn-report" class="icon-btn report-btn" aria-label="דיווח">🚩</button>
   </header>
 
@@ -219,8 +221,34 @@
     <div class="chat-peer">
       <span class="peer-label">לוח ניהול</span>
     </div>
-    <button id="btn-admin-signout" class="icon-btn" aria-label="התנתקות" title="התנתקות">⏻</button>
+    <button id="btn-admin-signout" class="icon-btn signout-btn" aria-label="התנתקות" title="התנתקות">⏻</button>
   </header>
+
+  <div class="admin-undercover-panel">
+    <p class="admin-undercover-title">פעולה סמויה כמשתמש</p>
+    <div class="admin-undercover-row">
+      <button id="btn-admin-random" class="btn btn-secondary small">מצא אות אקראי</button>
+      <form id="form-admin-direct-call" class="connect-form" autocomplete="off">
+        <input
+          id="input-admin-direct-id"
+          class="id-input"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="6"
+          placeholder="000000"
+          aria-label="מספר בן שיחה לחיוג ישיר"
+          dir="ltr"
+        >
+        <button type="submit" class="btn btn-secondary small">חיוג ישירות</button>
+      </form>
+    </div>
+    <label class="admin-premark-toggle">
+      <input type="checkbox" id="chk-admin-premark">
+      לסמן מראש שהמשתמש יידע שהוא מדבר עם המנהל
+    </label>
+    <p id="admin-undercover-status" class="status-line" role="status"></p>
+  </div>
 
   <div class="tab-bar">
     <button id="tab-reports" class="tab-btn active">דיווחים <span id="reports-count" class="tab-badge" hidden>0</span></button>
@@ -273,6 +301,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="firebase-config.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

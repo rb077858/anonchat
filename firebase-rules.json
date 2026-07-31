@@ -70,7 +70,15 @@
 
         "declined": { ".write": true, ".validate": "newData.isBoolean()" },
         "canceled": { ".write": true, ".validate": "newData.isBoolean()" },
-        "reported": { ".write": true, ".validate": "newData.isBoolean()" }
+        "reported": { ".write": true, ".validate": "newData.isBoolean()" },
+        "adminRevealed": {
+          ".write": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+          ".validate": "newData.isBoolean()"
+        },
+        "adminBlockedPeer": {
+          ".write": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+          ".validate": "newData.isBoolean()"
+        }
       }
     },
 

@@ -48,6 +48,8 @@ const btnDecline    = document.getElementById('btn-decline');
 
 const btnLeave      = document.getElementById('btn-leave');
 const btnReport     = document.getElementById('btn-report');
+const btnAdminReveal = document.getElementById('btn-admin-reveal');
+const peerAdminBadgeEl = document.getElementById('peer-admin-badge');
 const peerIdEl      = document.getElementById('peer-id');
 const peerStatusEl  = document.getElementById('peer-status');
 const messagesEl    = document.getElementById('messages');
@@ -72,6 +74,12 @@ let pendingInviteRoomId = null;
 let searchTimeoutHandle = null;
 let typingClearHandle = null;
 let blockInfo = null; // { blocked, reason, canMessageAdmin }
+
+// admin "act as a regular user" undercover session — see section 11b
+let adminActingAsUser = false;
+let adminRealId = null;
+let adminRealDeviceId = null;
+let adminRevealPreMarked = false;
 
 const activeListeners = [];
 function track(ref, event, cb) {
@@ -190,7 +198,7 @@ function applyBlockedUI() {
     blockedReasonTextEl.textContent =
       (blockInfo.reason && blockInfo.reason.trim())
         ? blockInfo.reason
-        : 'נחסמת משיחה עם משתמשים אחרים בעקבות דיווח.';
+        : 'נחסמת מהאפשרות לשוחח עם משתמשים אחרים.';
   }
 }
 
@@ -279,20 +287,30 @@ formConnect.addEventListener('submit', async (e) => {
     return;
   }
 
+  const ok = await attemptDirectCall(targetId, setHomeStatus);
+  if (ok) inputPartner.value = '';
+});
+
+inputPartner.addEventListener('input', () => {
+  inputPartner.value = inputPartner.value.replace(/\D/g, '').slice(0, ID_LENGTH);
+});
+
+// shared by the home-screen dial form and the admin undercover dial form
+async function attemptDirectCall(targetId, setStatus) {
   if (!ID_REGEX.test(targetId)) {
-    setHomeStatus('הזן/י מספר תקין בן 6 ספרות', 'error');
-    return;
+    setStatus('הזן/י מספר תקין בן 6 ספרות', 'error');
+    return false;
   }
   if (targetId === myId) {
-    setHomeStatus("זה האות שלך", 'error');
-    return;
+    setStatus('זה האות שלך', 'error');
+    return false;
   }
 
-  setHomeStatus('בודק/ת אות…');
+  setStatus('בודק/ת אות…');
   const snap = await db.ref('users/' + targetId + '/online').once('value');
   if (snap.val() !== true) {
-    setHomeStatus('האות הזה לא מחובר', 'error');
-    return;
+    setStatus('האות הזה לא מחובר', 'error');
+    return false;
   }
 
   const roomId = [myId, targetId].sort().join('_') + '_' + Date.now();
@@ -307,18 +325,14 @@ formConnect.addEventListener('submit', async (e) => {
       timestamp: firebase.database.ServerValue.TIMESTAMP,
     });
   } catch (err) {
-    setHomeStatus('לא ניתן להתחבר כרגע', 'error');
-    return;
+    setStatus('לא ניתן להתחבר כרגע', 'error');
+    return false;
   }
 
-  setHomeStatus('');
-  inputPartner.value = '';
+  setStatus('');
   joinChatRoom(roomId, targetId, { calling: true });
-});
-
-inputPartner.addEventListener('input', () => {
-  inputPartner.value = inputPartner.value.replace(/\D/g, '').slice(0, ID_LENGTH);
-});
+  return true;
+}
 
 // ============================================================
 // 6. RANDOM MATCHMAKING
@@ -350,9 +364,7 @@ function startRandomSearch() {
     return null;
   }).then(async ({ committed }) => {
     if (!committed) {
-      setHomeStatus('לא הצלחנו להתחבר, נסה/י שוב', 'error');
-      showScreen('home');
-      setMyStatus('idle');
+      abortSearch('לא הצלחנו להתחבר, נסה/י שוב');
       return;
     }
 
@@ -391,9 +403,7 @@ function startRandomSearch() {
       cancelRandomSearch('לא ניתן להתחבר כרגע');
     }
   }).catch(() => {
-    setHomeStatus('שגיאת התחברות, נסה/י שוב', 'error');
-    showScreen('home');
-    setMyStatus('idle');
+    abortSearch('שגיאת התחברות, נסה/י שוב');
   });
 }
 
@@ -411,6 +421,19 @@ function cancelRandomSearch(message) {
     myWaitingRoomId = null;
   }
 
+  abortSearch(message);
+}
+
+// leaving/failing a search either goes back to the home screen (regular
+// user) or back to the admin dashboard, discarding the temporary undercover
+// identity (see section 11b) — never both at once
+function abortSearch(message) {
+  if (adminActingAsUser) {
+    endAdminUndercover();
+    showScreen('admin');
+    setAdminUndercoverStatus(message || '', message ? 'error' : undefined);
+    return;
+  }
   setMyStatus('idle');
   showScreen('home');
   setHomeStatus(message || '', message ? 'error' : undefined);
@@ -437,6 +460,7 @@ function joinChatRoom(roomId, peerId, opts = {}) {
 
   messagesEl.innerHTML = '';
   peerIdEl.textContent = formatId(peerId);
+  peerAdminBadgeEl.hidden = true;
   peerStatusEl.classList.remove('offline');
   showScreen('chat');
 
@@ -444,6 +468,12 @@ function joinChatRoom(roomId, peerId, opts = {}) {
     opts.calling ? 'מתקשר/ת אל ' + formatId(peerId) + '…' : 'מחובר/ת אל ' + formatId(peerId),
     'system'
   );
+
+  applyChatHeaderForMode();
+  if (adminActingAsUser) {
+    appendMessage('פועל/ת כמשתמש/ת סמוי/ה · המספר הזמני שלך: ' + formatId(myId), 'system');
+    if (adminRevealPreMarked) db.ref('rooms/' + roomId + '/adminRevealed').set(true);
+  }
 
   const messagesRef = db.ref('rooms/' + roomId + '/messages');
   track(messagesRef, 'child_added', (snap) => {
@@ -461,6 +491,30 @@ function joinChatRoom(roomId, peerId, opts = {}) {
   const reportedRef = db.ref('rooms/' + roomId + '/reported');
   track(reportedRef, 'value', (snap) => {
     if (snap.val() === true) handleReportedKick();
+  });
+
+  // the admin directly blocked this room's other participant (undercover
+  // mode, section 11b) — kicks that side out immediately, no ID rotation.
+  // Never fires for the admin's own client, which leaves on its own.
+  const adminBlockedRef = db.ref('rooms/' + roomId + '/adminBlockedPeer');
+  track(adminBlockedRef, 'value', (snap) => {
+    if (snap.val() === true && !adminActingAsUser) handleBlockedKick();
+  });
+
+  // shows the peer a clear "you're talking to the admin" badge — either
+  // because the admin pre-marked it before dialing, or hit the reveal
+  // button mid-conversation (see section 11b). Never shown to the admin's
+  // own undercover client, only to the other side.
+  let adminRevealedMessageShown = false;
+  const adminRevealedRef = db.ref('rooms/' + roomId + '/adminRevealed');
+  track(adminRevealedRef, 'value', (snap) => {
+    if (adminActingAsUser) return;
+    const revealed = snap.val() === true;
+    peerAdminBadgeEl.hidden = !revealed;
+    if (revealed && !adminRevealedMessageShown) {
+      adminRevealedMessageShown = true;
+      appendMessage('האות שאיתו את/ה משוחח/ת הוא חשבון המנהל', 'system');
+    }
   });
 
   if (opts.calling) {
@@ -532,6 +586,13 @@ async function leaveChat() {
     }
   }
 
+  if (adminActingAsUser) {
+    endAdminUndercover();
+    typingIndicator.hidden = true;
+    showScreen('admin');
+    return;
+  }
+
   setMyStatus('idle');
   typingIndicator.hidden = true;
   showScreen('home');
@@ -543,8 +604,15 @@ async function leaveChat() {
 // ============================================================
 const reportConfirmOverlay = document.getElementById('report-confirm-overlay');
 
+// while undercover, the report button is repurposed into a direct-block
+// button (no report step, no ID rotation) — see applyChatHeaderForMode()
+// and section 11b
 btnReport.addEventListener('click', () => {
   if (!currentRoomId) return;
+  if (adminActingAsUser) {
+    adminDirectBlockCurrentPeer();
+    return;
+  }
   reportConfirmOverlay.hidden = false;
 });
 
@@ -615,6 +683,16 @@ async function handleReportedKick() {
     } catch (e) { /* best effort cleanup */ }
   }
 
+  // the peer reported this room while the admin was undercover — bail out
+  // to the dashboard instead of running the regular-user ID-rotation
+  // below, which would otherwise overwrite the admin's own persisted id
+  if (adminActingAsUser) {
+    endAdminUndercover();
+    typingIndicator.hidden = true;
+    showScreen('admin');
+    return;
+  }
+
   localStorage.removeItem('numbers_my_id');
   myId = await generateFreshId();
   localStorage.setItem('numbers_my_id', myId);
@@ -626,6 +704,32 @@ async function handleReportedKick() {
   typingIndicator.hidden = true;
   showScreen('home');
   setHomeStatus('התקבל דיווח בשיחה — המספר שלך התחלף ל-' + formatId(myId), 'ok');
+}
+
+// only ever fires for the non-admin side of an undercover chat (see the
+// adminBlockedPeer listener in joinChatRoom) — the admin's own client
+// leaves on its own right after setting the flag, via leaveChat()
+async function handleBlockedKick() {
+  if (state !== 'chatting') return;
+  clearAllListeners();
+  const roomId = currentRoomId;
+  currentRoomId = null;
+  currentPeerId = null;
+
+  if (roomId) {
+    try {
+      await db.ref('rooms/' + roomId + '/participants/' + myId).remove();
+      db.ref('rooms/' + roomId + '/typing/' + myId).remove();
+    } catch (e) { /* best effort cleanup */ }
+  }
+
+  setMyStatus('idle');
+  typingIndicator.hidden = true;
+  showScreen('home');
+  // the blocked-notice section (with the admin's reason, if any) is driven
+  // by the always-on listenForBlockStatus() listener and appears on its
+  // own moments later — this is just the immediate confirmation
+  setHomeStatus('נחסמת על ידי המנהל והוצאת מהשיחה', 'error');
 }
 
 // ============================================================
@@ -751,6 +855,7 @@ const adminOverlay = document.getElementById('admin-login-overlay');
 const adminEmailInput = document.getElementById('admin-email');
 const adminPasswordInput = document.getElementById('admin-password');
 const adminLoginStatusEl = document.getElementById('admin-login-status');
+const adminLoginSubmitBtn = document.getElementById('btn-admin-login-submit');
 
 function openAdminLoginOverlay() {
   adminEmailInput.value = '';
@@ -768,7 +873,34 @@ document.getElementById('btn-admin-login-cancel').addEventListener('click', () =
   adminOverlay.hidden = true;
 });
 
+// Firebase Auth's local persistence writes to an IndexedDB database
+// (firebaseLocalStorageDb) on every sign-in. That database occasionally
+// gets stuck — most often after a previous sign-in attempt was interrupted
+// (tab closed, double-clicked submit, etc.) — and once it is, new calls to
+// signInWithEmailAndPassword() never resolve OR reject, leaving the box on
+// "מתחבר/ת…" forever. The only fix used to be clearing the browser cache,
+// which resets that database. ADMIN_LOGIN_TIMEOUT_MS + resetStuckAuthPersistence
+// below do the same thing automatically, scoped to just Firebase's own
+// storage, so a retry works without the user having to clear anything.
+const ADMIN_LOGIN_TIMEOUT_MS = 10000;
+let adminLoginInFlight = false;
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+function resetStuckAuthPersistence() {
+  try { indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch (e) { /* ignore */ }
+}
+
 document.getElementById('btn-admin-login-submit').addEventListener('click', async () => {
+  if (adminLoginInFlight) return; // guards against double-click firing two overlapping sign-ins
   const email = adminEmailInput.value.trim();
   const password = adminPasswordInput.value;
   if (!email || !password) {
@@ -776,16 +908,26 @@ document.getElementById('btn-admin-login-submit').addEventListener('click', asyn
     adminLoginStatusEl.className = 'status-line error';
     return;
   }
+  adminLoginInFlight = true;
+  adminLoginSubmitBtn.disabled = true;
   adminLoginStatusEl.textContent = 'מתחבר/ת…';
   adminLoginStatusEl.className = 'status-line';
   try {
-    await auth.signInWithEmailAndPassword(email, password);
+    await withTimeout(auth.signInWithEmailAndPassword(email, password), ADMIN_LOGIN_TIMEOUT_MS);
     // overlay stays open until onAuthStateChanged confirms this is the
     // admin account — see below, so a UID mismatch shows a clear error
     // here instead of silently bouncing back to the home screen.
   } catch (err) {
-    adminLoginStatusEl.textContent = 'פרטי התחברות שגויים';
+    if (err && err.message === 'timeout') {
+      resetStuckAuthPersistence();
+      adminLoginStatusEl.textContent = 'ההתחברות נתקעה — נסה/י שוב';
+    } else {
+      adminLoginStatusEl.textContent = 'פרטי התחברות שגויים';
+    }
     adminLoginStatusEl.className = 'status-line error';
+  } finally {
+    adminLoginInFlight = false;
+    adminLoginSubmitBtn.disabled = false;
   }
 });
 
@@ -864,7 +1006,19 @@ auth.onAuthStateChanged(async (user) => {
     } else {
       clearTimeout(adminIdleTimer);
       stopAdminDashboard();
-      if (screens.admin.classList.contains('active')) showScreen('home');
+      if (adminActingAsUser) {
+        // session expired/signed out mid-undercover-chat — admin auth is
+        // gone, so there's no dashboard to return to; abandon the
+        // temporary identity and any live room listeners
+        clearAllListeners();
+        currentRoomId = null;
+        currentPeerId = null;
+        typingIndicator.hidden = true;
+        endAdminUndercover();
+        showScreen('home');
+      } else if (screens.admin.classList.contains('active')) {
+        showScreen('home');
+      }
     }
   } catch (err) {
     // whatever went wrong, never leave the login box stuck on "מתחבר/ת…"
@@ -873,6 +1027,120 @@ auth.onAuthStateChanged(async (user) => {
     adminLoginStatusEl.className = 'status-line error';
   }
 });
+
+// ============================================================
+// 11b. ADMIN — ACT AS A USER (UNDERCOVER MODE)
+//    Lets the admin behave exactly like a regular user (random match or
+//    direct dial) using a fresh, throwaway 6-digit number that is never
+//    persisted to localStorage — so a peer can't note it and redial it
+//    later to reach the admin again. Inside that chat, the report button
+//    is repurposed into a direct block (no report step needed), and the
+//    admin can reveal to the peer that they're talking to the admin —
+//    either up front (checkbox below) or at any point mid-conversation
+//    via the reveal button in the chat header. Revealing is one-way:
+//    once shown, it stays shown for the rest of that chat.
+// ============================================================
+const btnAdminRandom = document.getElementById('btn-admin-random');
+const formAdminDirectCall = document.getElementById('form-admin-direct-call');
+const inputAdminDirectId = document.getElementById('input-admin-direct-id');
+const chkAdminPremark = document.getElementById('chk-admin-premark');
+const adminUndercoverStatusEl = document.getElementById('admin-undercover-status');
+
+function setAdminUndercoverStatus(msg, kind) {
+  adminUndercoverStatusEl.textContent = msg || '';
+  adminUndercoverStatusEl.className = 'status-line' + (kind ? ' ' + kind : '');
+}
+
+async function beginAdminUndercover() {
+  adminRealId = myId;
+  adminRealDeviceId = myDeviceId;
+  myId = await generateFreshId();
+  myDeviceId = 'undercover-' + (window.crypto && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Date.now() + '-' + Math.random().toString(36).slice(2));
+  adminActingAsUser = true;
+  applyPresence();
+}
+
+function endAdminUndercover() {
+  if (!adminActingAsUser) return;
+  const tempRef = db.ref('users/' + myId);
+  tempRef.onDisconnect().cancel();
+  tempRef.remove();
+  myId = adminRealId;
+  myDeviceId = adminRealDeviceId;
+  adminActingAsUser = false;
+  adminRevealPreMarked = false;
+  adminRealId = null;
+  adminRealDeviceId = null;
+  chkAdminPremark.checked = false;
+  applyChatHeaderForMode();
+}
+
+// swaps the chat header's report button into a block button, and shows/hides
+// the mid-chat reveal button, depending on whether the admin is undercover
+function applyChatHeaderForMode() {
+  if (adminActingAsUser) {
+    btnReport.textContent = '⛔';
+    btnReport.setAttribute('aria-label', 'חסימת המשתמש');
+    btnReport.title = 'חסימת המשתמש';
+    btnAdminReveal.hidden = adminRevealPreMarked;
+  } else {
+    btnReport.textContent = '🚩';
+    btnReport.setAttribute('aria-label', 'דיווח');
+    btnReport.title = '';
+    btnAdminReveal.hidden = true;
+  }
+}
+
+btnAdminRandom.addEventListener('click', async () => {
+  if (adminActingAsUser) return;
+  setAdminUndercoverStatus('');
+  await beginAdminUndercover();
+  adminRevealPreMarked = chkAdminPremark.checked;
+  startRandomSearch();
+});
+
+formAdminDirectCall.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (adminActingAsUser) return;
+  const targetId = inputAdminDirectId.value.trim();
+  if (!ID_REGEX.test(targetId)) {
+    setAdminUndercoverStatus('הזן/י מספר תקין בן 6 ספרות', 'error');
+    return;
+  }
+  await beginAdminUndercover();
+  adminRevealPreMarked = chkAdminPremark.checked;
+  const ok = await attemptDirectCall(targetId, setAdminUndercoverStatus);
+  if (ok) {
+    inputAdminDirectId.value = '';
+  } else {
+    endAdminUndercover();
+  }
+});
+
+inputAdminDirectId.addEventListener('input', () => {
+  inputAdminDirectId.value = inputAdminDirectId.value.replace(/\D/g, '').slice(0, ID_LENGTH);
+});
+
+btnAdminReveal.addEventListener('click', () => {
+  if (!adminActingAsUser || !currentRoomId) return;
+  db.ref('rooms/' + currentRoomId + '/adminRevealed').set(true);
+  btnAdminReveal.hidden = true;
+  appendMessage('חשפת בפני האות השני שאת/ה המנהל', 'system');
+});
+
+async function adminDirectBlockCurrentPeer() {
+  const roomId = currentRoomId;
+  const peerId = currentPeerId;
+  if (!roomId || !peerId) return;
+  let peerDevice = 'unknown';
+  try {
+    const snap = await db.ref('rooms/' + roomId + '/participants/' + peerId + '/deviceId').once('value');
+    if (snap.val()) peerDevice = snap.val();
+  } catch (e) { /* keep 'unknown' */ }
+  openBlockModal(null, [{ deviceId: peerDevice, numericId: peerId }]);
+}
 
 // ============================================================
 // 12. ADMIN DASHBOARD
@@ -1032,7 +1300,7 @@ const blockReasonTextEl = document.getElementById('block-reason-text');
 function openBlockModal(reportId, targets) {
   const valid = targets.filter(t => t.deviceId && t.deviceId !== 'unknown');
   if (valid.length === 0) {
-    alert('לא נמצא מזהה מכשיר לחסימה עבור דיווח זה');
+    alert('לא נמצא מזהה מכשיר לחסימה');
     return;
   }
   pendingBlock = { reportId, targets: valid };
@@ -1050,6 +1318,8 @@ document.getElementById('btn-block-confirm').addEventListener('click', async () 
   if (!pendingBlock) return;
   const { reportId, targets } = pendingBlock;
   const reason = blockReasonTextEl.value.trim();
+  const wasUndercoverBlock = adminActingAsUser;
+  const blockedRoomId = currentRoomId; // captured before leaveChat() clears it below
 
   try {
     await Promise.all(targets.map(t => db.ref('blocklist/' + t.deviceId).set({
@@ -1071,6 +1341,15 @@ document.getElementById('btn-block-confirm').addEventListener('click', async () 
   }
   blockOverlay.hidden = true;
   pendingBlock = null;
+
+  // a direct block made from inside the undercover chat (no reportId) kicks
+  // the now-blocked peer out of the room right away (see handleBlockedKick
+  // and the adminBlockedPeer listener in joinChatRoom), then ends the
+  // admin's own side of the chat and returns to the dashboard
+  if (wasUndercoverBlock) {
+    if (blockedRoomId) db.ref('rooms/' + blockedRoomId + '/adminBlockedPeer').set(true);
+    await leaveChat();
+  }
 });
 
 // ---------- unread-message tracking for the blocked-users list ----------
