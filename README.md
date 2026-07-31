@@ -91,7 +91,7 @@ sign-in box in the app; the password is what actually protects the panel.
 4. Paste that UID into **`firebase-config.js`**, replacing
    `REPLACE_WITH_YOUR_ADMIN_UID`.
 5. Open **`firebase-rules.json`** and replace **every** occurrence of
-   `REPLACE_WITH_YOUR_ADMIN_UID` (there are 5) with that same UID, then
+   `REPLACE_WITH_YOUR_ADMIN_UID` (there are 7) with that same UID, then
    re-paste the whole file into the Rules editor in the console and
    **Publish** again.
 
@@ -131,6 +131,27 @@ free tier). Use a strong, unique password for the admin account.
   the **"משתמשים חסומים"** (Blocked users) tab in the panel, and you can
   also mute that channel per-person if needed. Unblocking restores full
   access at any time.
+
+## Acting as a user (undercover mode)
+
+At the top of the admin dashboard, a fixed panel lets you drop into a live
+chat exactly the way a regular user would — **מצא אות אקראי** (find a
+random signal) or **חיוג ישירות** (dial directly):
+
+- Each time you use either one, you get a **fresh, throwaway 6-digit
+  number** — never your own, never reused, and never saved to the
+  browser's storage. A peer who notes it down can't dial it again later to
+  reach you.
+- Inside that chat the 🚩 report icon is replaced with a **⛔ block icon**:
+  it blocks the person you're talking to immediately (still with an
+  optional reason field), no report step needed. The moment you confirm,
+  they're kicked out of the chat and shown that they were blocked, and
+  you're returned straight to the dashboard.
+- By default, the other person has **no way of knowing** they're talking
+  to the admin. If you want them to know, either check **"לסמן מראש..."**
+  before dialing/searching, or hit the 🛡 button in the chat header at any
+  point during the conversation — it shows them a "מנהל" badge from then
+  on. Revealing is one-way; there's no way to hide it again once shown.
 
 ## 5. Test locally (optional but recommended)
 
@@ -220,6 +241,11 @@ Two more things worth knowing:
     declined: boolean          (set when a direct call is declined)
     reported: boolean          (set the instant either side files a report —
                                  both clients react to this and auto-rotate)
+    adminRevealed: boolean     (admin-only write — shows the peer a "מנהל"
+                                 badge; set during undercover mode, see above)
+    adminBlockedPeer: boolean  (admin-only write — set when the admin
+                                 directly blocks the other side of an
+                                 undercover chat; kicks them out immediately)
 
 /reports/{reportId}                          (admin-read only)
     roomId, reporterId, reporterDevice, reportedId, reportedDevice
@@ -254,6 +280,13 @@ are already listening on that flag (it's part of joining any chat), so
 both react independently and simultaneously: leave the room, wipe their
 old number, generate a fresh one, and land back on the home screen with a
 notice.
+
+**Direct blocking from undercover mode** works the same way but simpler:
+confirming the block writes to `/blocklist` and flips
+`rooms/{roomId}/adminBlockedPeer` to `true`, which the blocked side's
+already-listening client reacts to by leaving immediately and showing a
+notice — no ID rotation, since blocking is keyed to the device, not the
+number.
 
 Rooms are deleted once both participants have left, so no message history
 survives after a chat ends (aside from the snapshot copied into a report,
