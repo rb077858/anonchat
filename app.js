@@ -381,6 +381,15 @@ function startRandomSearch() {
           deviceId: myDeviceId,
           joinedAt: firebase.database.ServerValue.TIMESTAMP,
         });
+
+        // if this tab vanishes (closed, crashed, network drop) while still
+        // waiting, the server cleans these up on its own instead of leaving
+        // a ghost entry that a later search would "match" against — the
+        // exact bug that made it look like you were reconnecting to your
+        // own earlier throwaway number
+        db.ref('matchmaking/waiting').onDisconnect().remove();
+        db.ref('rooms/' + myWaitingRoomId).onDisconnect().remove();
+
         const participantsRef = db.ref('rooms/' + myWaitingRoomId + '/participants');
         const onPartner = (snap) => {
           const participants = snap.val() || {};
@@ -388,6 +397,12 @@ function startRandomSearch() {
           if (otherId) {
             participantsRef.off('value', onPartner);
             clearTimeout(searchTimeoutHandle);
+            // we're no longer just "waiting" — this room is now a real,
+            // in-use chat, so cancel the disconnect-cleanup above before it
+            // can wipe out the room (or a since-registered new waiter's
+            // matchmaking/waiting entry) out from under the conversation
+            db.ref('matchmaking/waiting').onDisconnect().cancel();
+            db.ref('rooms/' + myWaitingRoomId).onDisconnect().cancel();
             joinChatRoom(myWaitingRoomId, otherId);
           }
         };
@@ -411,6 +426,11 @@ function cancelRandomSearch(message) {
   clearTimeout(searchTimeoutHandle);
   clearAllListeners();
 
+  // we're cleaning this up ourselves now, so the disconnect-triggered
+  // cleanup registered while we were waiting (see startRandomSearch) is no
+  // longer needed — harmless no-op if nothing was ever registered
+  db.ref('matchmaking/waiting').onDisconnect().cancel();
+
   // captured now, not read live inside the transaction below: the actual
   // Firebase transaction callback runs asynchronously, and abortSearch()
   // a few lines down can reassign the shared myId (undercover teardown,
@@ -425,6 +445,7 @@ function cancelRandomSearch(message) {
   });
 
   if (myWaitingRoomId) {
+    db.ref('rooms/' + myWaitingRoomId).onDisconnect().cancel();
     db.ref('rooms/' + myWaitingRoomId).remove();
     myWaitingRoomId = null;
   }
@@ -465,6 +486,11 @@ function joinChatRoom(roomId, peerId, opts = {}) {
   currentRoomId = roomId;
   currentPeerId = peerId;
   setMyStatus('chatting');
+
+  // if this tab vanishes mid-chat (closed, crashed, network drop) instead
+  // of a normal leave, drop our own participant entry so the room doesn't
+  // linger as an orphan forever
+  db.ref('rooms/' + roomId + '/participants/' + myId).onDisconnect().remove();
 
   messagesEl.innerHTML = '';
   peerIdEl.textContent = formatId(peerId);
@@ -586,6 +612,7 @@ async function leaveChat() {
   currentPeerId = null;
 
   if (roomId) {
+    db.ref('rooms/' + roomId + '/participants/' + myId).onDisconnect().cancel();
     await db.ref('rooms/' + roomId + '/participants/' + myId).remove();
     db.ref('rooms/' + roomId + '/typing/' + myId).remove();
     const snap = await db.ref('rooms/' + roomId + '/participants').once('value');
@@ -684,6 +711,7 @@ async function handleReportedKick() {
 
   if (roomId) {
     try {
+      db.ref('rooms/' + roomId + '/participants/' + myId).onDisconnect().cancel();
       await db.ref('rooms/' + roomId + '/participants/' + myId).remove();
       db.ref('rooms/' + roomId + '/typing/' + myId).remove();
       const snap = await db.ref('rooms/' + roomId + '/participants').once('value');
@@ -726,6 +754,7 @@ async function handleBlockedKick() {
 
   if (roomId) {
     try {
+      db.ref('rooms/' + roomId + '/participants/' + myId).onDisconnect().cancel();
       await db.ref('rooms/' + roomId + '/participants/' + myId).remove();
       db.ref('rooms/' + roomId + '/typing/' + myId).remove();
     } catch (e) { /* best effort cleanup */ }
