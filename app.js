@@ -411,8 +411,16 @@ function cancelRandomSearch(message) {
   clearTimeout(searchTimeoutHandle);
   clearAllListeners();
 
+  // captured now, not read live inside the transaction below: the actual
+  // Firebase transaction callback runs asynchronously, and abortSearch()
+  // a few lines down can reassign the shared myId (undercover teardown,
+  // ID rotation) before that callback fires — comparing against a live
+  // myId would then check the WRONG id and leave this waiting-room entry
+  // stuck forever, so a later random search "matches" this stale, dead
+  // entry instead of a real person
+  const clearingId = myId;
   db.ref('matchmaking/waiting').transaction((current) => {
-    if (current && current.id === myId) return null;
+    if (current && current.id === clearingId) return null;
     return current;
   });
 
