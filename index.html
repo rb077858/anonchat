@@ -1,6 +1,26 @@
 <!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
+<script>
+(function () {
+    const CLIENT_ID = "10";
+    const TTL_MS = 60 * 60 * 1000; // האימות פג תוקף אחרי שעה
+    const STORAGE_KEY = "human_verified_until";
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("verified") === "1") {
+        localStorage.setItem(STORAGE_KEY, String(Date.now() + TTL_MS));
+        window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+        return;
+    }
+
+    const verifiedUntil = parseInt(localStorage.getItem(STORAGE_KEY), 10);
+    if (!Number.isFinite(verifiedUntil) || Date.now() > verifiedUntil) {
+        window.location.replace("https://verify.r.is-cool.dev/?client=" + encodeURIComponent(CLIENT_ID));
+    }
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>צ'אט אנונימי</title>
