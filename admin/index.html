@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Heebo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- bump ?v=N together with the main index.html when style.css changes -->
-<link rel="stylesheet" href="../style.css?v=13">
+<link rel="stylesheet" href="../style.css?v=14">
 </head>
 <body>
 
@@ -29,35 +29,41 @@
       <svg class="icon" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/><path d="M9.5 12l1.8 1.8 3.7-3.8"/></svg>
     </div>
     <h1 class="admin-login-title">כניסת מנהל</h1>
-    <p class="admin-login-sub">הזינו את פרטי חשבון המנהל</p>
+    <p class="admin-login-sub">דרך חשבון reem.bi</p>
 
     <p id="admin-login-checking" class="status-line">בודק חיבור…</p>
 
-    <form id="admin-login-form" class="admin-login-form" autocomplete="on" hidden novalidate>
-      <label class="field">
-        <span class="field-label">אימייל</span>
-        <input id="admin-email" class="id-input admin-input" type="email" name="email" dir="ltr" autocomplete="username" required>
-      </label>
-      <label class="field">
-        <span class="field-label">סיסמה</span>
-        <span class="password-wrap">
-          <input id="admin-password" class="id-input admin-input" type="password" name="password" dir="ltr" autocomplete="current-password" required>
-          <button id="btn-toggle-password" class="password-toggle" type="button" aria-label="הצגת הסיסמה" aria-pressed="false">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
+    <!-- signed out of reem.bi -->
+    <div id="panel-signed-out" class="admin-login-panel" hidden>
+      <button id="btn-sso-login" type="button" class="btn btn-primary btn-lg">התחברות</button>
+    </div>
+
+    <!-- signed in to reem.bi, but not with the admin account -->
+    <div id="panel-account" class="admin-login-panel" hidden>
+      <div class="sso-user">
+        <img id="sso-avatar" class="sso-avatar" alt="" hidden>
+        <span id="sso-initial" class="sso-avatar sso-initial" aria-hidden="true"></span>
+        <span class="sso-user-text">
+          <span id="sso-name" class="sso-name"></span>
+          <span id="sso-email" class="sso-email" dir="ltr"></span>
         </span>
-      </label>
-      <button id="btn-admin-login-submit" type="submit" class="btn btn-primary btn-lg">כניסה</button>
-      <p id="admin-login-status" class="status-line" role="status"></p>
-    </form>
+      </div>
+      <div class="sso-actions">
+        <a id="sso-account-link" class="btn btn-secondary" href="#" target="_blank" rel="noopener">החשבון שלי</a>
+        <button id="btn-sso-logout" type="button" class="btn btn-ghost">התנתקות</button>
+      </div>
+    </div>
+
+    <p id="admin-login-status" class="status-line" role="status"></p>
   </section>
 
   <a class="admin-login-back" href="../">חזרה לאתר</a>
 </main>
 
+<script src="https://login.reembir.com/sdk.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="../firebase-config.js?v=10"></script>
-<script src="admin.js?v=1"></script>
+<script src="../firebase-config.js?v=11"></script>
+<script src="admin.js?v=2"></script>
 </body>
 </html>

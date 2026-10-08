@@ -1076,32 +1076,47 @@ textarea:focus-visible {
   font-size: 13.5px;
   color: var(--text-dim);
 }
-.admin-login-form { display: flex; flex-direction: column; gap: 14px; }
-.admin-login-form .btn { margin-top: 6px; }
-.admin-login-form .status-line { margin-top: 2px; }
-.field { display: flex; flex-direction: column; gap: 7px; }
-.field-label { font-size: 13px; font-weight: 500; color: var(--text-dim); }
-.field .admin-input { margin-bottom: 0; text-align: left; }
-.password-wrap { position: relative; display: block; }
-.password-wrap .admin-input { padding-right: 48px; }
-.password-toggle {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
-  width: 38px;
-  height: 38px;
-  border: none;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--text-mute);
+.admin-login-panel { display: flex; flex-direction: column; gap: 14px; }
+.admin-login-card .status-line { margin-top: 14px; }
+.admin-login-card .status-line:empty { display: none; }
+
+/* the signed-in reem.bi account (shown when it isn't the admin's) */
+.sso-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+.sso-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+.sso-initial {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-weight: 700;
+  font-size: 18px;
 }
-.password-toggle:hover,
-.password-toggle[aria-pressed="true"] { color: var(--amber); }
-.password-toggle .icon { width: 18px; height: 18px; }
+.sso-user-text { display: flex; flex-direction: column; min-width: 0; }
+.sso-name, .sso-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sso-name { font-weight: 600; font-size: 15px; }
+.sso-email { font-size: 13px; color: var(--text-dim); text-align: right; }
+.sso-actions { display: flex; gap: 10px; }
+.sso-actions .btn { flex: 1; width: auto; padding: 12px 14px; font-size: 14.5px; text-decoration: none; }
 .admin-login-back {
   margin: 22px auto 0;
   font-size: 13.5px;
