@@ -1037,11 +1037,12 @@ formSupportMessage.addEventListener('submit', (e) => {
 // ============================================================
 // 11. ADMIN LOGIN
 // ============================================================
-// The sign-in form lives on its own page, admin/ (open the site's address
-// with /admin at the end). After a successful sign-in it sends the browser
-// back here with #admin in the address, which is what opens the dashboard.
-// Both pages use the same named 'admin' Firebase app, so they share the
-// persisted admin session.
+// Sign-in lives on its own page, admin/ (open the site's address with
+// /admin at the end), and goes through the reem.bi account system
+// (login.reembir.com). That page trades the reem.bi login for a Firebase
+// custom token and then sends the browser back here with #admin in the
+// address, which is what opens the dashboard. Both pages use the same
+// named 'admin' Firebase app, so they share the persisted admin session.
 const ADMIN_HASH = '#admin';
 const ADMIN_LOGIN_PAGE = 'admin/';
 
@@ -1052,6 +1053,7 @@ function clearAdminHash() {
   if (wantsAdminDashboard()) history.replaceState(null, '', location.pathname + location.search);
 }
 function goToAdminLogin() {
+  if (leavingForSsoLogout) return;
   location.replace(ADMIN_LOGIN_PAGE);
 }
 
@@ -1064,13 +1066,33 @@ document.getElementById('btn-admin-back').addEventListener('click', () => {
 });
 
 document.getElementById('btn-admin-signout').addEventListener('click', async () => {
-  clearAdminHash(); // a deliberate sign-out lands on the home screen
   await adminSignOut();
 });
 
+// Signs the admin out of Firebase here AND out of reem.bi on this site:
+// the reem.bi session lives on the admin/ page (that's where the SDK runs),
+// so hand off to it with ?logout — it signs out and then returns to the
+// home screen. Used for the sign-out button and the idle timeout alike.
+let leavingForSsoLogout = false;
 async function adminSignOut() {
+  leavingForSsoLogout = true;
   clearAdminActivity();
-  await auth.signOut();
+  try { await auth.signOut(); } catch (e) { /* leaving anyway */ }
+  location.replace(ADMIN_LOGIN_PAGE + '?logout');
+}
+
+// only a Firebase session minted by login.reembir.com for this site and
+// for ADMIN_EMAIL counts (the database rules check exactly the same claims)
+let adminVerified = false;
+async function isAdminToken(user) {
+  try {
+    const { claims } = await user.getIdTokenResult();
+    return claims.sso_site === SSO_CLIENT_ID &&
+      typeof claims.sso_email === 'string' &&
+      claims.sso_email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  } catch (e) {
+    return false;
+  }
 }
 
 function enterAdminDashboard() {
@@ -1085,7 +1107,7 @@ const ADMIN_ACTIVITY_KEY = 'numbers_admin_last_activity';
 let adminIdleTimer = null;
 
 function isAdminSession() {
-  return !!(auth.currentUser && auth.currentUser.uid === ADMIN_UID);
+  return !!(auth.currentUser && adminVerified);
 }
 function markAdminActivity() {
   try { localStorage.setItem(ADMIN_ACTIVITY_KEY, String(Date.now())); } catch (e) { /* ignore */ }
@@ -1118,7 +1140,8 @@ function resetAdminIdleTimer() {
 
 auth.onAuthStateChanged(async (user) => {
   try {
-    if (user && typeof ADMIN_UID === 'string' && user.uid === ADMIN_UID) {
+    adminVerified = !!user && await isAdminToken(user);
+    if (user && adminVerified) {
       if (adminIdleRemainingMs() <= 0) {
         // more than 30 idle minutes passed since the last recorded activity
         // (e.g. the tab was closed) — expire the session instead of letting
@@ -1130,8 +1153,8 @@ auth.onAuthStateChanged(async (user) => {
       else resetAdminIdleTimer();
     } else if (user) {
       // not the admin account (the login page already reports this case)
-      console.warn('Signed in, but UID does not match ADMIN_UID:', user.uid);
-      await adminSignOut();
+      console.warn('Admin app signed in without admin claims:', user.uid);
+      await auth.signOut();
     } else {
       clearTimeout(adminIdleTimer);
       stopAdminDashboard();
@@ -1193,7 +1216,7 @@ function setAdminUndercoverStatus(msg, kind) {
 async function beginAdminUndercover() {
   let tempId;
   try {
-    tempId = await claimFreshId(adminDb, ADMIN_UID);
+    tempId = await claimFreshId(adminDb, auth.currentUser.uid);
   } catch (e) {
     setAdminUndercoverStatus('לא הצלחנו להקצות מספר זמני, נסו שוב', 'error');
     return false;

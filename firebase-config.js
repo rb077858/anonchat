@@ -5,7 +5,7 @@
 // This file is safe to be public — these are client identifiers,
 // not secrets. Actual protection comes from your Realtime Database
 // security rules (see firebase-rules.json) and from your admin
-// account's real password (see ADMIN_UID below and the README).
+// reem.bi sign-in (see SSO_CLIENT_ID / ADMIN_EMAIL below and the README).
 // ============================================================
 const firebaseConfig = {
   apiKey: "AIzaSyD0hbI667K1P2FNU1KqINm8MPL1JtdvE30",
@@ -19,12 +19,13 @@ const firebaseConfig = {
 };
 
 // ============================================================
-// The Firebase Auth UID of the ONE admin account you create for
-// yourself (Authentication -> Users -> Add user, in the Firebase
-// console). Paste that user's UID here.
+// Admin sign-in goes through the reem.bi account system
+// (login.reembir.com). Whoever signs in there with ADMIN_EMAIL on
+// the site registered as SSO_CLIENT_ID gets the admin dashboard.
 //
-// This value is NOT a secret — knowing it grants nothing without
-// the matching password. The real gate is in firebase-rules.json,
-// which must contain this exact same UID. See README.md, step 3.
+// Neither value is a secret. The real gate is in firebase-rules.json,
+// which checks the same email and client id inside the Firebase token
+// that login.reembir.com issues — keep them in sync. See README.md.
 // ============================================================
-const ADMIN_UID = "aR3Gbk5WfLegw7scl7yMs43dRyN2";
+const SSO_CLIENT_ID = "anonchat";
+const ADMIN_EMAIL = "admin@reembir.com";

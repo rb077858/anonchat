@@ -16,7 +16,7 @@ can no longer reach the device.
 Files:
 ```
 index.html          all app screens (home / searching / chat / admin dashboard)
-admin/index.html    the admin sign-in page (open /admin)
+admin/index.html    the admin sign-in page (open /admin) — reem.bi login
 admin/admin.js      sign-in logic for that page
 style.css            mobile-first styling
 app.js                all app logic
@@ -92,43 +92,45 @@ login screen.
 
 Without this, the app shows "לא הצלחנו להתחבר לשרת" on the home screen.
 
-## 5. Set up your admin account (for reports & blocking)
+## 5. Admin sign-in (reem.bi account)
 
 The moderation panel (reviewing reports, blocking abusive devices, messaging
-blocked users) is protected by a **real Firebase account that only you
-control** — the password is what actually protects the panel, not the
-address of the sign-in page.
+blocked users) is opened by signing in with the **reem.bi account**
+(login.reembir.com) whose email is `ADMIN_EMAIL` in `firebase-config.js`
+(currently `admin@reembir.com`).
 
-1. In the Firebase console, go to **Build → Authentication → Sign-in
-   method** and enable the **Email/Password** provider.
-2. Go to the **Users** tab → **Add user** → enter an email and password
-   you'll remember (this does not need to be a real inbox — it's just your
-   admin login, e.g. `admin@yourdomain.example`).
-3. Click on the new user and copy their **User UID** (a long string like
-   `a1B2c3D4e5F6...`).
-4. Paste that UID into **`firebase-config.js`**, replacing
-   `REPLACE_WITH_YOUR_ADMIN_UID`.
-5. Open **`firebase-rules.json`** and replace **every** occurrence of
-   `REPLACE_WITH_YOUR_ADMIN_UID` with that same UID, then
-   re-paste the whole file into the Rules editor in the console and
-   **Publish** again.
+How it fits together:
+1. `admin/index.html` loads `https://login.reembir.com/sdk.js` and signs in
+   to reem.bi with client id `SSO_CLIENT_ID` (`anonchat`).
+2. If the signed-in email is the admin's, the page asks login.reembir.com
+   for a **Firebase custom token** (`auth.getFirebaseToken()`) and signs the
+   admin's Firebase session in with it. The token carries the claims
+   `sso_email` and `sso_site`.
+3. `firebase-rules.json` grants every admin permission only when
+   `auth.token.sso_email === 'admin@reembir.com'` **and**
+   `auth.token.sso_site === 'anonchat'`. The page's own email check is just
+   for a friendly message; the rules are the real gate.
+
+One-time setup:
+- **Dashboard** (login.reembir.com/admin → sites → + new site): id
+  `anonchat`, redirect URLs `https://reembir.com/anonchat/admin/` and
+  `https://rb077858.github.io/anonchat/admin/`; access "by invitation" with
+  only the admin account invited.
+- **Cloudflare secret** `FIREBASE_SA_ANONCHAT`: the full JSON of a service
+  account key from *this* Firebase project (Firebase console → Project
+  settings → Service accounts → Generate new private key). Without it the
+  sign-in page says the Firebase secret is missing.
+- To change the admin email or client id, change it in **both**
+  `firebase-config.js` and every occurrence in `firebase-rules.json`, then
+  re-publish the rules.
 
 To open the admin panel: add **`/admin`** to the end of the site's address
-(e.g. `https://YOUR_USERNAME.github.io/YOUR_REPO/admin`). That opens the
-sign-in page (`admin/index.html`) — enter the email/password from step 2.
-If they match your admin UID, you're sent back to the site with `#admin` at
-the end of the address and the dashboard opens. While the session is alive
-(until you sign out or 30 minutes pass with no activity), opening `/admin`
-again skips the form and goes straight to the dashboard. Anyone else who
-finds the page just gets "wrong email or password", because they don't have
-your password.
-
-**Being upfront about the limits here:** without a backend server, this is
-the strongest access control a static site can offer — genuine password
-protection enforced by Firebase's servers, not just hidden client code. It
-is not, however, hardened against a determined, technical attacker (e.g.
-password guessing against your one account has no built-in lockout on the
-free tier). Use a strong, unique password for the admin account.
+(e.g. `https://reembir.com/anonchat/admin`) and press **התחברות**. After
+signing in you're sent back to the site with `#admin` at the end of the
+address and the dashboard opens. While the session is alive (until you
+sign out or 30 minutes pass with no activity), opening `/admin` again goes
+straight to the dashboard. Signing out — or the idle timeout — signs out of
+both the dashboard and reem.bi on this site.
 
 ## How reporting & blocking work
 
@@ -359,6 +361,5 @@ if one was filed).
   their choice *if it is free* — never one that belongs to someone else.
 - No push notifications — matching, invites, and admin messages only
   arrive while the tab is open.
-- The admin password has no built-in lockout after repeated failed
-  attempts (a Firebase free-tier constraint) — use a strong, unique
-  password for that one account.
+- Admin access is only as strong as the reem.bi account
+  `admin@reembir.com` — use a strong password (or a passkey) there.
