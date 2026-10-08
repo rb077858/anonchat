@@ -6,9 +6,25 @@
    support channel, and the admin dashboard.
    ============================================================ */
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const auth = firebase.auth();
+// Two separate Firebase app instances, each with its own auth session and
+// its own database connection:
+//   - the default app signs every visitor in anonymously. That anonymous
+//     account is what OWNS a number on the server (see /ids and /owners in
+//     firebase-rules.json), so a number can't be claimed twice and can't be
+//     swapped by editing localStorage or variables in devtools.
+//   - the 'admin' app holds only the admin's email/password session, so
+//     signing in/out as admin never touches the visitor's anonymous identity.
+const userApp  = firebase.initializeApp(firebaseConfig);
+const adminApp = firebase.initializeApp(firebaseConfig, 'admin');
+const userDb   = userApp.database();
+const adminDb  = adminApp.database();
+const userAuth = userApp.auth();
+const auth     = adminApp.auth();
+
+// the connection every "regular user" action goes through. Points at the
+// admin connection only while the admin is undercover (section 11b), since
+// the throwaway number used there is owned by the admin account.
+let db = userDb;
 
 const ID_LENGTH = 6;
 const ID_REGEX = /^[0-9]{6}$/;
@@ -24,6 +40,7 @@ const screens = {
   admin: document.getElementById('screen-admin'),
 };
 const myIdEl        = document.getElementById('my-id');
+const btnCopyId     = document.getElementById('btn-copy-id');
 const homeStatusEl  = document.getElementById('home-status');
 const homeActionsEl = document.getElementById('home-actions');
 const blockedNoticeEl = document.getElementById('blocked-notice');
@@ -101,6 +118,28 @@ function setHomeStatus(msg, kind) {
   homeStatusEl.className = 'status-line' + (kind ? ' ' + kind : '');
 }
 
+function renderMyId() {
+  myIdEl.textContent = formatId(myId);
+  myIdEl.classList.remove('loading');
+  btnCopyId.hidden = false;
+}
+
+btnCopyId.addEventListener('click', async () => {
+  if (!myId) return;
+  const label = btnCopyId.querySelector('span');
+  try {
+    await navigator.clipboard.writeText(myId);
+    label.textContent = 'הועתק!';
+    btnCopyId.classList.add('done');
+  } catch (e) {
+    label.textContent = 'לא ניתן להעתיק';
+  }
+  setTimeout(() => {
+    label.textContent = 'העתקת המספר';
+    btnCopyId.classList.remove('done');
+  }, 1600);
+});
+
 function formatId(id) {
   if (!id) return '';
   // \u2066 / \u2069 = Unicode LRI/PDI isolate marks. Without them, a
@@ -116,40 +155,114 @@ function formatId(id) {
 //    myId    — the visible 6-digit number, rotates freely
 //    deviceId — a hidden, persistent id used only for blocking
 // ============================================================
-function getOrCreateDeviceId() {
-  let id = localStorage.getItem('numbers_device_id');
-  if (id) return id;
+function localDeviceIdCandidate() {
+  let id = null;
+  try { id = localStorage.getItem('numbers_device_id'); } catch (e) { /* ignore */ }
+  if (id && id.length <= 64) return id;
   id = (window.crypto && crypto.randomUUID)
     ? crypto.randomUUID()
     : 'dev-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-  localStorage.setItem('numbers_device_id', id);
+  try { localStorage.setItem('numbers_device_id', id); } catch (e) { /* ignore */ }
   return id;
 }
 
-function randomSixDigitId() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+// resolves with the visitor's anonymous Firebase account, signing in if
+// needed. A leftover non-anonymous session on the default app (from older
+// versions, where the admin signed in there) is signed out first.
+function ensureUserAccount() {
+  return new Promise((resolve, reject) => {
+    const unsub = userAuth.onAuthStateChanged(async (user) => {
+      if (user && user.isAnonymous) {
+        unsub();
+        resolve(user);
+        return;
+      }
+      try {
+        if (user) await userAuth.signOut();
+        else await userAuth.signInAnonymously();
+      } catch (err) {
+        unsub();
+        reject(err);
+      }
+    });
+  });
 }
 
-async function idIsTaken(id) {
-  const snap = await db.ref('users/' + id).once('value');
-  return snap.exists();
-}
-
-async function generateFreshId() {
-  let candidate = randomSixDigitId();
-  let attempts = 0;
-  while (await idIsTaken(candidate) && attempts < 6) {
-    candidate = randomSixDigitId();
-    attempts++;
-  }
+// the device id is bound to the anonymous account on the server the first
+// time it's seen, and can never be changed afterwards (see the rules) —
+// the copy in localStorage is only used as the initial value, so existing
+// devices keep their id (and any block on it)
+async function loadOrBindDeviceId(uid) {
+  const ref = userDb.ref('owners/' + uid + '/deviceId');
+  const snap = await ref.once('value');
+  if (snap.exists()) return snap.val();
+  const candidate = localDeviceIdCandidate();
+  await ref.set(candidate);
   return candidate;
 }
 
-async function getOrCreateMyId() {
-  const stored = localStorage.getItem('numbers_my_id');
-  if (stored && ID_REGEX.test(stored)) return stored;
-  const fresh = await generateFreshId();
-  localStorage.setItem('numbers_my_id', fresh);
+function randomSixDigitId() {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return String(100000 + (buf[0] % 900000));
+}
+
+// Claims a brand-new number for the signed-in account in ONE atomic write:
+// the number's /ids entry, the account's /owners pointer, and (when
+// replacing) the release of the previous number. The rules only accept the
+// claim if /ids/{number} is still empty, so if two devices race for the
+// same number the server lets exactly one through and the other simply
+// retries with a different candidate — two people can never end up with
+// the same number. The number itself is never trusted from the client
+// afterwards: it's read back from /owners on every load.
+async function claimFreshId(conn, uid, opts = {}) {
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const candidate = randomSixDigitId();
+    if (candidate === opts.previousId) continue;
+    const pre = await conn.ref('ids/' + candidate).once('value');
+    if (pre.exists()) continue;
+
+    const updates = {};
+    updates['ids/' + candidate] = uid;
+    if (opts.bindOwner) {
+      updates['owners/' + uid + '/id'] = candidate;
+      if (opts.previousId && opts.ownsPrevious) updates['ids/' + opts.previousId] = null;
+    }
+    try {
+      await conn.ref().update(updates);
+      return candidate;
+    } catch (err) {
+      // someone else claimed it between the check and the write — try another
+    }
+  }
+  throw new Error('could not allocate a number');
+}
+
+async function idOwnedBy(conn, id, uid) {
+  if (!id) return false;
+  const snap = await conn.ref('ids/' + id).once('value');
+  return snap.val() === uid;
+}
+
+async function loadOrClaimMyId(uid) {
+  const snap = await userDb.ref('owners/' + uid + '/id').once('value');
+  const current = snap.val();
+  if (current && ID_REGEX.test(current) && await idOwnedBy(userDb, current, uid)) return current;
+  const fresh = await claimFreshId(userDb, uid, { bindOwner: true, previousId: current, ownsPrevious: false });
+  // a recycled number may still carry stale data from a previous owner
+  try { await userDb.ref('users/' + fresh).remove(); } catch (e) { /* ignore */ }
+  return fresh;
+}
+
+// gives the current account a new number and releases the old one
+async function rotateMyId() {
+  const uid = userAuth.currentUser.uid;
+  const oldId = myId;
+  try { await userDb.ref('users/' + oldId).onDisconnect().cancel(); } catch (e) { /* ignore */ }
+  try { await userDb.ref('users/' + oldId).remove(); } catch (e) { /* ignore */ }
+  const fresh = await claimFreshId(userDb, uid, { bindOwner: true, previousId: oldId, ownsPrevious: true });
+  try { await userDb.ref('users/' + fresh).remove(); } catch (e) { /* ignore */ }
+  try { localStorage.removeItem('numbers_my_id'); } catch (e) { /* legacy key, unused now */ }
   return fresh;
 }
 
@@ -297,6 +410,10 @@ inputPartner.addEventListener('input', () => {
 
 // shared by the home-screen dial form and the admin undercover dial form
 async function attemptDirectCall(targetId, setStatus) {
+  if (!myId) {
+    setStatus('עדיין מתחבר/ת, נסו שוב בעוד רגע', 'error');
+    return false;
+  }
   if (!ID_REGEX.test(targetId)) {
     setStatus('הזן/י מספר תקין בן 6 ספרות', 'error');
     return false;
@@ -343,6 +460,7 @@ btnCancel.addEventListener('click', () => cancelRandomSearch());
 let myWaitingRoomId = null;
 
 function startRandomSearch() {
+  if (!myId) return; // still connecting
   setMyStatus('searching');
   showScreen('search');
   searchIdCenter.textContent = formatId(myId);
@@ -388,7 +506,7 @@ function startRandomSearch() {
         // exact bug that made it look like you were reconnecting to your
         // own earlier throwaway number
         db.ref('matchmaking/waiting').onDisconnect().remove();
-        db.ref('rooms/' + myWaitingRoomId).onDisconnect().remove();
+        db.ref('rooms/' + myWaitingRoomId + '/participants/' + myId).onDisconnect().remove();
 
         const participantsRef = db.ref('rooms/' + myWaitingRoomId + '/participants');
         const onPartner = (snap) => {
@@ -402,7 +520,7 @@ function startRandomSearch() {
             // can wipe out the room (or a since-registered new waiter's
             // matchmaking/waiting entry) out from under the conversation
             db.ref('matchmaking/waiting').onDisconnect().cancel();
-            db.ref('rooms/' + myWaitingRoomId).onDisconnect().cancel();
+            db.ref('rooms/' + myWaitingRoomId + '/participants/' + myId).onDisconnect().cancel();
             joinChatRoom(myWaitingRoomId, otherId);
           }
         };
@@ -445,8 +563,13 @@ function cancelRandomSearch(message) {
   });
 
   if (myWaitingRoomId) {
-    db.ref('rooms/' + myWaitingRoomId).onDisconnect().cancel();
-    db.ref('rooms/' + myWaitingRoomId).remove();
+    // the rules only allow deleting a room once nobody is in it, so drop our
+    // own participant entry first
+    const roomRef = db.ref('rooms/' + myWaitingRoomId);
+    roomRef.child('participants/' + myId).onDisconnect().cancel();
+    roomRef.child('participants/' + myId).remove()
+      .then(() => roomRef.remove())
+      .catch(() => {});
     myWaitingRoomId = null;
   }
 
@@ -729,10 +852,14 @@ async function handleReportedKick() {
     return;
   }
 
-  localStorage.removeItem('numbers_my_id');
-  myId = await generateFreshId();
-  localStorage.setItem('numbers_my_id', myId);
-  myIdEl.textContent = formatId(myId);
+  try {
+    myId = await rotateMyId();
+  } catch (e) {
+    showScreen('home');
+    setHomeStatus('לא הצלחנו להקצות מספר חדש — רעננו את הדף', 'error');
+    return;
+  }
+  renderMyId();
   applyPresence();
   listenForInvites();
 
@@ -773,6 +900,7 @@ async function handleBlockedKick() {
 // 9. SETTINGS / MANUAL RESET
 // ============================================================
 btnSettings.addEventListener('click', () => {
+  if (!myId) return;
   settingsIdEl.textContent = formatId(myId);
   setSettingsStatus('');
   disarmReset();
@@ -816,16 +944,17 @@ async function performReset() {
   if (state === 'searching') cancelRandomSearch();
   clearAllListeners();
 
-  const oldId = myId;
   try {
-    await db.ref('users/' + oldId).remove();
-  } catch (e) { /* fine, move on */ }
+    myId = await rotateMyId();
+  } catch (e) {
+    btnResetId.disabled = false;
+    setSettingsStatus('האיפוס נכשל, נסו שוב', 'error');
+    applyPresence();
+    listenForInvites();
+    return;
+  }
 
-  localStorage.removeItem('numbers_my_id');
-  myId = await generateFreshId();
-  localStorage.setItem('numbers_my_id', myId);
-
-  myIdEl.textContent = formatId(myId);
+  renderMyId();
   settingsIdEl.textContent = formatId(myId);
   applyPresence();
   listenForInvites();
@@ -910,16 +1039,9 @@ document.getElementById('btn-admin-login-cancel').addEventListener('click', () =
   adminOverlay.hidden = true;
 });
 
-// Firebase Auth's local persistence writes to an IndexedDB database
-// (firebaseLocalStorageDb) on every sign-in. That database occasionally
-// gets stuck — most often after a previous sign-in attempt was interrupted
-// (tab closed, double-clicked submit, etc.) — and once it is, new calls to
-// signInWithEmailAndPassword() never resolve OR reject, leaving the box on
-// "מתחבר/ת…" forever. The only fix used to be clearing the browser cache,
-// which resets that database. ADMIN_LOGIN_TIMEOUT_MS + resetStuckAuthPersistence
-// below do the same thing automatically, scoped to just Firebase's own
-// storage, so a retry works without the user having to clear anything.
-const ADMIN_LOGIN_TIMEOUT_MS = 10000;
+// a sign-in that never settles (flaky network) gets a clear error instead
+// of leaving the box on "מתחבר/ת…" forever
+const ADMIN_LOGIN_TIMEOUT_MS = 15000;
 let adminLoginInFlight = false;
 
 function withTimeout(promise, ms) {
@@ -930,10 +1052,6 @@ function withTimeout(promise, ms) {
       (err) => { clearTimeout(timer); reject(err); }
     );
   });
-}
-
-function resetStuckAuthPersistence() {
-  try { indexedDB.deleteDatabase('firebaseLocalStorageDb'); } catch (e) { /* ignore */ }
 }
 
 document.getElementById('btn-admin-login-submit').addEventListener('click', async () => {
@@ -949,6 +1067,12 @@ document.getElementById('btn-admin-login-submit').addEventListener('click', asyn
   adminLoginSubmitBtn.disabled = true;
   adminLoginStatusEl.textContent = 'מתחבר/ת…';
   adminLoginStatusEl.className = 'status-line';
+  // This used to be the "sometimes login just doesn't work until you clear
+  // site data" bug: the idle-timeout check in onAuthStateChanged read the
+  // LAST activity timestamp left over from a previous session, saw it was
+  // more than 30 minutes old, and signed the brand-new login straight back
+  // out. A fresh, deliberate sign-in is activity, so record it first.
+  markAdminActivity();
   try {
     await withTimeout(auth.signInWithEmailAndPassword(email, password), ADMIN_LOGIN_TIMEOUT_MS);
     // overlay stays open until onAuthStateChanged confirms this is the
@@ -956,8 +1080,11 @@ document.getElementById('btn-admin-login-submit').addEventListener('click', asyn
     // here instead of silently bouncing back to the home screen.
   } catch (err) {
     if (err && err.message === 'timeout') {
-      resetStuckAuthPersistence();
-      adminLoginStatusEl.textContent = 'ההתחברות נתקעה — נסה/י שוב';
+      adminLoginStatusEl.textContent = 'אין תגובה מהשרת — בדקו את החיבור ונסו שוב';
+    } else if (err && err.code === 'auth/too-many-requests') {
+      adminLoginStatusEl.textContent = 'יותר מדי ניסיונות — נסו שוב בעוד כמה דקות';
+    } else if (err && err.code === 'auth/network-request-failed') {
+      adminLoginStatusEl.textContent = 'בעיית רשת — נסו שוב';
     } else {
       adminLoginStatusEl.textContent = 'פרטי התחברות שגויים';
     }
@@ -976,8 +1103,13 @@ document.getElementById('btn-admin-back').addEventListener('click', () => {
 });
 
 document.getElementById('btn-admin-signout').addEventListener('click', async () => {
-  await auth.signOut();
+  await adminSignOut();
 });
+
+async function adminSignOut() {
+  clearAdminActivity();
+  await auth.signOut();
+}
 
 function enterAdminDashboard() {
   adminOverlay.hidden = true;
@@ -997,6 +1129,9 @@ function isAdminSession() {
 function markAdminActivity() {
   try { localStorage.setItem(ADMIN_ACTIVITY_KEY, String(Date.now())); } catch (e) { /* ignore */ }
 }
+function clearAdminActivity() {
+  try { localStorage.removeItem(ADMIN_ACTIVITY_KEY); } catch (e) { /* ignore */ }
+}
 function adminIdleRemainingMs() {
   try {
     const raw = localStorage.getItem(ADMIN_ACTIVITY_KEY);
@@ -1012,7 +1147,7 @@ function resetAdminIdleTimer() {
   clearTimeout(adminIdleTimer);
   if (!isAdminSession()) return;
   markAdminActivity();
-  adminIdleTimer = setTimeout(() => auth.signOut(), ADMIN_IDLE_LIMIT_MS);
+  adminIdleTimer = setTimeout(adminSignOut, ADMIN_IDLE_LIMIT_MS);
 }
 ['click', 'keydown', 'touchstart'].forEach((evt) => {
   document.addEventListener(evt, () => {
@@ -1027,7 +1162,7 @@ auth.onAuthStateChanged(async (user) => {
         // more than 30 idle minutes passed since the last recorded activity
         // (e.g. the tab was closed) — expire the session instead of letting
         // Firebase's own persisted login silently walk back in.
-        await auth.signOut();
+        await adminSignOut();
         return;
       }
       enterAdminDashboard();
@@ -1039,7 +1174,7 @@ auth.onAuthStateChanged(async (user) => {
       adminLoginStatusEl.textContent =
         'ההתחברות הצליחה אך זה אינו חשבון המנהל המוגדר (בדקו את ADMIN_UID ב-firebase-config.js)';
       adminLoginStatusEl.className = 'status-line error';
-      await auth.signOut();
+      await adminSignOut();
     } else {
       clearTimeout(adminIdleTimer);
       stopAdminDashboard();
@@ -1088,22 +1223,40 @@ function setAdminUndercoverStatus(msg, kind) {
   adminUndercoverStatusEl.className = 'status-line' + (kind ? ' ' + kind : '');
 }
 
+// the throwaway number is claimed through the same atomic /ids claim as a
+// regular number (so it can't collide with anyone), but owned by the admin
+// account and never pointed to from /owners — returns false if it failed
 async function beginAdminUndercover() {
+  let tempId;
+  try {
+    tempId = await claimFreshId(adminDb, ADMIN_UID);
+  } catch (e) {
+    setAdminUndercoverStatus('לא הצלחנו להקצות מספר זמני, נסו שוב', 'error');
+    return false;
+  }
   adminRealId = myId;
   adminRealDeviceId = myDeviceId;
-  myId = await generateFreshId();
+  myId = tempId;
   myDeviceId = 'undercover-' + (window.crypto && crypto.randomUUID
     ? crypto.randomUUID()
     : Date.now() + '-' + Math.random().toString(36).slice(2));
+  db = adminDb;
   adminActingAsUser = true;
+  try { await adminDb.ref('users/' + tempId).remove(); } catch (e) { /* ignore */ }
   applyPresence();
+  return true;
 }
 
 function endAdminUndercover() {
   if (!adminActingAsUser) return;
-  const tempRef = db.ref('users/' + myId);
+  const tempId = myId;
+  const tempRef = adminDb.ref('users/' + tempId);
   tempRef.onDisconnect().cancel();
-  tempRef.remove();
+  tempRef.remove()
+    .catch(() => {})
+    .then(() => adminDb.ref('ids/' + tempId).remove())
+    .catch(() => {});
+  db = userDb;
   myId = adminRealId;
   myDeviceId = adminRealDeviceId;
   adminActingAsUser = false;
@@ -1133,7 +1286,7 @@ function applyChatHeaderForMode() {
 btnAdminRandom.addEventListener('click', async () => {
   if (adminActingAsUser) return;
   setAdminUndercoverStatus('');
-  await beginAdminUndercover();
+  if (!await beginAdminUndercover()) return;
   adminRevealPreMarked = chkAdminPremark.checked;
   startRandomSearch();
 });
@@ -1146,7 +1299,7 @@ formAdminDirectCall.addEventListener('submit', async (e) => {
     setAdminUndercoverStatus('הזן/י מספר תקין בן 6 ספרות', 'error');
     return;
   }
-  await beginAdminUndercover();
+  if (!await beginAdminUndercover()) return;
   adminRevealPreMarked = chkAdminPremark.checked;
   const ok = await attemptDirectCall(targetId, setAdminUndercoverStatus);
   if (ok) {
@@ -1162,7 +1315,7 @@ inputAdminDirectId.addEventListener('input', () => {
 
 btnAdminReveal.addEventListener('click', () => {
   if (!adminActingAsUser || !currentRoomId) return;
-  db.ref('rooms/' + currentRoomId + '/adminRevealed').set(true);
+  adminDb.ref('rooms/' + currentRoomId + '/adminRevealed').set(true);
   btnAdminReveal.hidden = true;
   appendMessage('חשפת בפני האות השני שאת/ה המנהל', 'system');
 });
@@ -1173,7 +1326,7 @@ async function adminDirectBlockCurrentPeer() {
   if (!roomId || !peerId) return;
   let peerDevice = 'unknown';
   try {
-    const snap = await db.ref('rooms/' + roomId + '/participants/' + peerId + '/deviceId').once('value');
+    const snap = await adminDb.ref('rooms/' + roomId + '/participants/' + peerId + '/deviceId').once('value');
     if (snap.val()) peerDevice = snap.val();
   } catch (e) { /* keep 'unknown' */ }
   openBlockModal(null, [{ deviceId: peerDevice, numericId: peerId }]);
@@ -1212,11 +1365,11 @@ function startAdminDashboard() {
   adminDashboardActive = true;
   showAdminTab('reports');
 
-  adminReportsRef = db.ref('reports').orderByChild('status').equalTo('pending');
+  adminReportsRef = adminDb.ref('reports').orderByChild('status').equalTo('pending');
   adminReportsCb = (snap) => renderReports(snap.val() || {});
   adminReportsRef.on('value', adminReportsCb);
 
-  adminBlocklistRef = db.ref('blocklist');
+  adminBlocklistRef = adminDb.ref('blocklist');
   adminBlocklistCb = (snap) => {
     currentBlocklistObj = snap.val() || {};
     const blockedIds = Object.keys(currentBlocklistObj)
@@ -1319,7 +1472,7 @@ function renderReports(reportsObj) {
 
 async function resolveReport(reportId, resolution) {
   try {
-    await db.ref('reports/' + reportId).update({
+    await adminDb.ref('reports/' + reportId).update({
       status: resolution.action === 'handled' ? 'handled' : 'actioned',
       resolution: Object.assign({}, resolution, { at: firebase.database.ServerValue.TIMESTAMP }),
     });
@@ -1359,7 +1512,7 @@ document.getElementById('btn-block-confirm').addEventListener('click', async () 
   const blockedRoomId = currentRoomId; // captured before leaveChat() clears it below
 
   try {
-    await Promise.all(targets.map(t => db.ref('blocklist/' + t.deviceId).set({
+    await Promise.all(targets.map(t => adminDb.ref('blocklist/' + t.deviceId).set({
       blocked: true,
       reason,
       blockedAt: firebase.database.ServerValue.TIMESTAMP,
@@ -1384,7 +1537,7 @@ document.getElementById('btn-block-confirm').addEventListener('click', async () 
   // and the adminBlockedPeer listener in joinChatRoom), then ends the
   // admin's own side of the chat and returns to the dashboard
   if (wasUndercoverBlock) {
-    if (blockedRoomId) db.ref('rooms/' + blockedRoomId + '/adminBlockedPeer').set(true);
+    if (blockedRoomId) adminDb.ref('rooms/' + blockedRoomId + '/adminBlockedPeer').set(true);
     await leaveChat();
   }
 });
@@ -1421,7 +1574,7 @@ function syncUnreadListeners(deviceIds) {
 
   deviceIds.forEach((id) => {
     if (unreadListeners[id]) return;
-    const ref = db.ref('adminChats/' + id + '/messages').limitToLast(1);
+    const ref = adminDb.ref('adminChats/' + id + '/messages').limitToLast(1);
     const cb = (snap) => {
       const val = snap.val();
       let unread = false;
@@ -1476,7 +1629,7 @@ function renderBlocked(blocklistObj) {
     btnUnblock.className = 'btn btn-secondary';
     btnUnblock.textContent = 'שחרור חסימה';
     btnUnblock.addEventListener('click', () => {
-      db.ref('blocklist/' + deviceId).update({ blocked: false });
+      adminDb.ref('blocklist/' + deviceId).update({ blocked: false });
     });
 
     const btnChat = document.createElement('button');
@@ -1502,7 +1655,7 @@ function renderBlocked(blocklistObj) {
     toggleBtn.textContent = canMsg ? 'מופעל' : 'כבוי';
     toggleBtn.className = canMsg ? 'on' : '';
     toggleBtn.addEventListener('click', () => {
-      db.ref('blocklist/' + deviceId + '/canMessageAdmin').set(!canMsg);
+      adminDb.ref('blocklist/' + deviceId + '/canMessageAdmin').set(!canMsg);
     });
     toggleRow.append(label, toggleBtn);
     card.appendChild(toggleRow);
@@ -1534,7 +1687,7 @@ function openAdminChatView(deviceId) {
   hasUnread[deviceId] = false;
 
   if (adminChatRef && adminChatCb) adminChatRef.off('child_added', adminChatCb);
-  adminChatRef = db.ref('adminChats/' + deviceId + '/messages');
+  adminChatRef = adminDb.ref('adminChats/' + deviceId + '/messages');
   adminChatCb = (snap) => {
     const m = snap.val();
     if (!m) return;
@@ -1569,7 +1722,7 @@ formAdminChatMessage.addEventListener('submit', (e) => {
   e.preventDefault();
   const text = inputAdminChatMessage.value.trim();
   if (!text || !adminChatDeviceId) return;
-  db.ref('adminChats/' + adminChatDeviceId + '/messages').push({
+  adminDb.ref('adminChats/' + adminChatDeviceId + '/messages').push({
     sender: 'admin',
     text,
     timestamp: firebase.database.ServerValue.TIMESTAMP,
@@ -1581,9 +1734,17 @@ formAdminChatMessage.addEventListener('submit', (e) => {
 // 13. BOOT
 // ============================================================
 (async function init() {
-  myDeviceId = getOrCreateDeviceId();
-  myId = await getOrCreateMyId();
-  myIdEl.textContent = formatId(myId);
+  try {
+    const user = await ensureUserAccount();
+    myDeviceId = await loadOrBindDeviceId(user.uid);
+    myId = await loadOrClaimMyId(user.uid);
+  } catch (err) {
+    console.error('Could not set up this device\'s number:', err);
+    setHomeStatus('לא הצלחנו להתחבר לשרת — רעננו את הדף', 'error');
+    return;
+  }
+  try { localStorage.removeItem('numbers_my_id'); } catch (e) { /* legacy key, unused now */ }
+  renderMyId();
   initPresence();
   listenForInvites();
   listenForBlockStatus();

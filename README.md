@@ -1,7 +1,9 @@
 # צ'אט אנונימי — anonymous real-time chat
 
 A static, login-free chat app with a Hebrew (RTL) interface. Every device
-gets a random 6-digit ID the moment it first opens the site. Find a random
+gets its own unique 6-digit ID the moment it first opens the site — the ID
+is claimed atomically on the server, so two devices can never get the same
+one, and it can't be changed from the browser's devtools. Find a random
 stranger or dial someone's number directly — everything after that happens
 in real time over Firebase.
 
@@ -74,15 +76,29 @@ They do **not** prevent someone from writing crafted API calls directly
 against your database (e.g. spamming messages into a room they know the ID
 of). That's an inherent limitation of a login-free app for regular users.
 
-## 4. Set up your admin account (for reports & blocking)
+## 4. Enable anonymous sign-in (required)
+
+Every visitor is silently signed in with a Firebase **anonymous** account.
+That account is what *owns* the visitor's 6-digit number on the server, so
+nobody can claim a number that's already taken or post as someone else's
+number (see "How numbers are assigned" below). The visitor never sees a
+login screen.
+
+1. In the Firebase console, go to **Build → Authentication → Get started**
+   (if you haven't already).
+2. Open the **Sign-in method** tab, click **Anonymous**, enable it, and save.
+
+Without this, the app shows "לא הצלחנו להתחבר לשרת" on the home screen.
+
+## 5. Set up your admin account (for reports & blocking)
 
 The moderation panel (reviewing reports, blocking abusive devices, messaging
 blocked users) is protected by a **real Firebase account that only you
 control** — not by the "137925" code alone. That code just opens the
 sign-in box in the app; the password is what actually protects the panel.
 
-1. In the Firebase console, go to **Build → Authentication → Get started**,
-   then enable the **Email/Password** sign-in provider.
+1. In the Firebase console, go to **Build → Authentication → Sign-in
+   method** and enable the **Email/Password** provider.
 2. Go to the **Users** tab → **Add user** → enter an email and password
    you'll remember (this does not need to be a real inbox — it's just your
    admin login, e.g. `admin@yourdomain.example`).
@@ -91,7 +107,7 @@ sign-in box in the app; the password is what actually protects the panel.
 4. Paste that UID into **`firebase-config.js`**, replacing
    `REPLACE_WITH_YOUR_ADMIN_UID`.
 5. Open **`firebase-rules.json`** and replace **every** occurrence of
-   `REPLACE_WITH_YOUR_ADMIN_UID` (there are 7) with that same UID, then
+   `REPLACE_WITH_YOUR_ADMIN_UID` with that same UID, then
    re-paste the whole file into the Rules editor in the console and
    **Publish** again.
 
@@ -153,7 +169,7 @@ random signal) or **חיוג ישירות** (dial directly):
   point during the conversation — it shows them a "מנהל" badge from then
   on. Revealing is one-way; there's no way to hide it again once shown.
 
-## 5. Test locally (optional but recommended)
+## 6. Test locally (optional but recommended)
 
 Any static file server works, e.g.:
 
@@ -164,10 +180,10 @@ python3 -m http.server 8080
 ```
 
 Open the page in two different browsers (or one normal + one incognito
-window, since the ID is stored in `localStorage` per browser profile) to
-simulate two devices talking to each other.
+window, since each browser profile gets its own anonymous account and
+therefore its own number) to simulate two devices talking to each other.
 
-## 6. Deploy to GitHub Pages
+## 7. Deploy to GitHub Pages
 
 1. Create a new GitHub repository and push these files to it:
    ```bash
@@ -221,9 +237,36 @@ Two more things worth knowing:
   expect, or search the page source for a string you know is only in the
   new version.
 
+## How numbers are assigned
+
+- On first visit the app signs in anonymously, picks a random 6-digit
+  candidate and claims it with **one atomic write** to `/ids/{number}` and
+  `/owners/{uid}/id`. The rules only accept the claim if `/ids/{number}` is
+  still empty — so if two devices race for the same number, the server lets
+  exactly one through and the other just tries another candidate.
+- The number is never trusted from the browser afterwards: on every load
+  it's read back from `/owners/{uid}`. Editing `localStorage` or a variable
+  in devtools changes nothing — every write that carries a number (presence,
+  invites, joining a room, messages, typing, matchmaking, reports) is
+  checked by the rules against `/ids/{number}` belonging to the signed-in
+  account.
+- Resetting (or being rotated by a report) claims a new number and releases
+  the old one in the same atomic write.
+- The hidden device id used for blocking is bound to the anonymous account
+  the first time it's seen (`/owners/{uid}/deviceId`) and can't be changed
+  afterwards, so a blocked device can't "rename" itself either. Existing
+  devices keep their old device id, so existing blocks still apply.
+
 ## How it works (data model)
 
 ```
+/ids/{number}: uid          (who owns each number — claimed atomically,
+                             only the owner can release it)
+
+/owners/{uid}               (private to that account)
+    id:       the account's current number
+    deviceId: hidden device id for blocking (write-once)
+
 /users/{id}
     online:   boolean         (presence, backed by onDisconnect)
     lastSeen: timestamp
@@ -298,10 +341,12 @@ if one was filed).
   within what the rules allow (see the rules note above) — there's no way
   around this for regular (login-free) users without changing the app's
   core "no login" design.
-- IDs are stored in `localStorage`, so clearing site data or switching
-  browsers gives a device a new ID *and* a new device fingerprint — a
-  clever way around a block, though it does cost the ability to be found
-  by a previously-shared number.
+- The anonymous account lives in the browser's storage, so clearing site
+  data or switching browsers gives a device a new account, a new number
+  *and* a new device id — a way around a block, though it does cost the
+  ability to be found by a previously-shared number.
+- A technical user could, through the raw API, claim a specific number of
+  their choice *if it is free* — never one that belongs to someone else.
 - No push notifications — matching, invites, and admin messages only
   arrive while the tab is open.
 - The admin password has no built-in lockout after repeated failed
