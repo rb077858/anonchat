@@ -6,7 +6,7 @@
     "ids": {
       "$id": {
         ".read": true,
-        ".write": "auth != null && $id.matches(/^[0-9]{6}$/) && ((!data.exists() && newData.val() === auth.uid && (auth.uid === 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || newData.parent().parent().child('owners').child(auth.uid).child('id').val() === $id)) || (data.val() === auth.uid && !newData.exists()))"
+        ".write": "auth != null && $id.matches(/^[0-9]{6}$/) && ((!data.exists() && newData.val() === auth.uid && (auth.uid === 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || newData.parent().parent().child('owners').child(auth.uid).child('id').val() === $id)) || (data.val() === auth.uid && !newData.exists()))"
       }
     },
 
@@ -42,7 +42,7 @@
               ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)"
             },
             "fromDevice": {
-              ".validate": "newData.isString() && (auth.uid === 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val()) && root.child('blocklist').child(newData.val()).child('blocked').val() != true"
+              ".validate": "newData.isString() && (auth.uid === 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val()) && root.child('blocklist').child(newData.val()).child('blocked').val() != true"
             },
             "timestamp": { ".validate": "newData.isNumber()" },
             "$other": { ".validate": false }
@@ -57,7 +57,7 @@
       "waiting": {
         ".read": true,
         ".write": "auth != null && (!newData.exists() || !data.exists() || data.child('id').val() === newData.child('id').val())",
-        ".validate": "newData.hasChildren(['id','roomId','deviceId']) && newData.child('id').isString() && root.child('ids').child(newData.child('id').val()).val() === auth.uid && newData.child('deviceId').isString() && (auth.uid === 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.child('deviceId').val()) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true"
+        ".validate": "newData.hasChildren(['id','roomId','deviceId']) && newData.child('id').isString() && root.child('ids').child(newData.child('id').val()).val() === auth.uid && newData.child('deviceId').isString() && (auth.uid === 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.child('deviceId').val()) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true"
       }
     },
 
@@ -70,7 +70,7 @@
           "$uid": {
             ".write": "auth != null && root.child('ids').child($uid).val() === auth.uid",
             ".validate": "newData.hasChildren(['deviceId','joinedAt']) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true",
-            "deviceId": { ".validate": "newData.isString() && (auth.uid === 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val())" },
+            "deviceId": { ".validate": "newData.isString() && (auth.uid === 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val())" },
             "joinedAt": { ".validate": "newData.isNumber()" },
             "$other":   { ".validate": false }
           }
@@ -81,7 +81,7 @@
             ".write": "auth != null && !data.exists()",
             ".validate": "newData.hasChildren(['sender','senderDevice','text','timestamp']) && root.child('rooms').child($roomId).child('participants').child(newData.child('sender').val()).exists() && root.child('blocklist').child(newData.child('senderDevice').val()).child('blocked').val() != true",
             "sender":       { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/) && root.child('ids').child(newData.val()).val() === auth.uid" },
-            "senderDevice": { ".validate": "newData.isString() && (auth.uid === 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val())" },
+            "senderDevice": { ".validate": "newData.isString() && (auth.uid === 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val())" },
             "text":         { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
             "timestamp":    { ".validate": "newData.isNumber()" },
             "$other":       { ".validate": false }
@@ -99,11 +99,11 @@
         "canceled": { ".write": "auth != null", ".validate": "newData.isBoolean()" },
         "reported": { ".write": "auth != null", ".validate": "newData.isBoolean()" },
         "adminRevealed": {
-          ".write": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+          ".write": "auth != null && auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2'",
           ".validate": "newData.isBoolean()"
         },
         "adminBlockedPeer": {
-          ".write": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+          ".write": "auth != null && auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2'",
           ".validate": "newData.isBoolean()"
         },
         "$other": { ".validate": false }
@@ -111,11 +111,11 @@
     },
 
     "reports": {
-      ".read": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+      ".read": "auth != null && auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2'",
       ".indexOn": ["status", "timestamp"],
       "$reportId": {
-        ".write": "auth != null && (auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || !data.exists())",
-        ".validate": "newData.hasChildren(['roomId','reporterId','reporterDevice','reportedId','reportedDevice','timestamp','status']) && (auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || (root.child('ids').child(newData.child('reporterId').val()).val() === auth.uid && newData.child('status').val() === 'pending'))",
+        ".write": "auth != null && (auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || !data.exists())",
+        ".validate": "newData.hasChildren(['roomId','reporterId','reporterDevice','reportedId','reportedDevice','timestamp','status']) && (auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || (root.child('ids').child(newData.child('reporterId').val()).val() === auth.uid && newData.child('status').val() === 'pending'))",
         "roomId":         { ".validate": "newData.isString()" },
         "reporterId":     { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)" },
         "reporterDevice": { ".validate": "newData.isString()" },
@@ -130,10 +130,10 @@
     },
 
     "blocklist": {
-      ".read": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+      ".read": "auth != null && auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2'",
       "$deviceId": {
         ".read": true,
-        ".write": "auth != null && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'",
+        ".write": "auth != null && auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2'",
         ".validate": "newData.hasChildren(['blocked'])",
         "blocked":         { ".validate": "newData.isBoolean()" },
         "reason":          { ".validate": "newData.isString() && newData.val().length <= 500" },
@@ -144,11 +144,11 @@
 
     "adminChats": {
       "$deviceId": {
-        ".read": "auth != null && (auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || root.child('owners').child(auth.uid).child('deviceId').val() === $deviceId)",
+        ".read": "auth != null && (auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('owners').child(auth.uid).child('deviceId').val() === $deviceId)",
         "messages": {
           "$msgId": {
-            ".write": "auth != null && !data.exists() && (auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' || root.child('owners').child(auth.uid).child('deviceId').val() === $deviceId)",
-            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' ? (auth.uid != 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2' && root.child('blocklist').child($deviceId).child('canMessageAdmin').val() != false) : (newData.child('sender').val() == 'admin' && auth.uid == 'q5nzb7TJ3eNw8TXFdidlHb3lwNQ2'))",
+            ".write": "auth != null && !data.exists() && (auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('owners').child(auth.uid).child('deviceId').val() === $deviceId)",
+            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' ? (auth.uid != 'aR3Gbk5WfLegw7scl7yMs43dRyN2' && root.child('blocklist').child($deviceId).child('canMessageAdmin').val() != false) : (newData.child('sender').val() == 'admin' && auth.uid == 'aR3Gbk5WfLegw7scl7yMs43dRyN2'))",
             "sender":    { ".validate": "newData.isString()" },
             "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
             "timestamp": { ".validate": "newData.isNumber()" },
