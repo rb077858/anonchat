@@ -13,7 +13,7 @@
 <!-- ?v=N is a cache-buster: bump this number every time you edit style.css/app.js
      and redeploy, so phones and CDNs are forced to fetch the new file instead
      of serving a stale cached copy. -->
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 
@@ -205,21 +205,6 @@
   </form>
 </main>
 
-<!-- ================= ADMIN LOGIN OVERLAY ================= -->
-<div id="admin-login-overlay" class="modal-overlay" hidden>
-  <div class="modal-card">
-    <h2 class="settings-title">כניסת מנהל</h2>
-    <p class="settings-text">התחברות עם חשבון המנהל שלך ב-Firebase.</p>
-    <input id="admin-email" class="id-input admin-input" type="email" placeholder="אימייל" dir="ltr" autocomplete="username">
-    <input id="admin-password" class="id-input admin-input" type="password" placeholder="סיסמה" dir="ltr" autocomplete="current-password">
-    <p id="admin-login-status" class="status-line" role="status"></p>
-    <div class="invite-actions">
-      <button id="btn-admin-login-cancel" class="btn btn-ghost small">ביטול</button>
-      <button id="btn-admin-login-submit" class="btn btn-primary small">כניסה</button>
-    </div>
-  </div>
-</div>
-
 <!-- ================= ADMIN DASHBOARD ================= -->
 <main id="screen-admin" class="screen">
   <header class="chat-header">
@@ -307,6 +292,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="firebase-config.js?v=9"></script>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

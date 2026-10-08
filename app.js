@@ -28,7 +28,6 @@ let db = userDb;
 
 const ID_LENGTH = 6;
 const ID_REGEX = /^[0-9]{6}$/;
-const ADMIN_TRIGGER_CODE = '137925'; // opens the admin sign-in box — see README
 
 // ---------- DOM: core screens ----------
 const screens = {
@@ -381,25 +380,11 @@ btnDecline.addEventListener('click', () => {
 });
 
 // ============================================================
-// 5. CONNECT BY ID (direct call) — also doubles as the admin
-//    sign-in trigger when the code matches ADMIN_TRIGGER_CODE
+// 5. CONNECT BY ID (direct call)
 // ============================================================
 formConnect.addEventListener('submit', async (e) => {
   e.preventDefault();
   const targetId = inputPartner.value.trim();
-
-  if (targetId === ADMIN_TRIGGER_CODE) {
-    inputPartner.value = '';
-    setHomeStatus('');
-    if (auth.currentUser && auth.currentUser.uid === ADMIN_UID) {
-      // already signed in from earlier in this session — just re-enter
-      enterAdminDashboard();
-    } else {
-      openAdminLoginOverlay();
-    }
-    return;
-  }
-
   const ok = await attemptDirectCall(targetId, setHomeStatus);
   if (ok) inputPartner.value = '';
 });
@@ -1017,92 +1002,34 @@ formSupportMessage.addEventListener('submit', (e) => {
 // ============================================================
 // 11. ADMIN LOGIN
 // ============================================================
-const adminOverlay = document.getElementById('admin-login-overlay');
-const adminEmailInput = document.getElementById('admin-email');
-const adminPasswordInput = document.getElementById('admin-password');
-const adminLoginStatusEl = document.getElementById('admin-login-status');
-const adminLoginSubmitBtn = document.getElementById('btn-admin-login-submit');
+// The sign-in form lives on its own page, admin/ (open the site's address
+// with /admin at the end). After a successful sign-in it sends the browser
+// back here with #admin in the address, which is what opens the dashboard.
+// Both pages use the same named 'admin' Firebase app, so they share the
+// persisted admin session.
+const ADMIN_HASH = '#admin';
+const ADMIN_LOGIN_PAGE = 'admin/';
 
-function openAdminLoginOverlay() {
-  adminEmailInput.value = '';
-  adminPasswordInput.value = '';
-  adminLoginStatusEl.textContent = '';
-  adminLoginStatusEl.className = 'status-line';
-  if (typeof ADMIN_UID !== 'string' || !ADMIN_UID || ADMIN_UID.indexOf('REPLACE_WITH') === 0) {
-    adminLoginStatusEl.textContent = 'ADMIN_UID עדיין לא הוגדר ב-firebase-config.js';
-    adminLoginStatusEl.className = 'status-line error';
-  }
-  adminOverlay.hidden = false;
+function wantsAdminDashboard() {
+  return location.hash === ADMIN_HASH;
 }
-
-document.getElementById('btn-admin-login-cancel').addEventListener('click', () => {
-  adminOverlay.hidden = true;
-});
-
-// a sign-in that never settles (flaky network) gets a clear error instead
-// of leaving the box on "מתחבר/ת…" forever
-const ADMIN_LOGIN_TIMEOUT_MS = 15000;
-let adminLoginInFlight = false;
-
-function withTimeout(promise, ms) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), ms);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (err) => { clearTimeout(timer); reject(err); }
-    );
-  });
+function clearAdminHash() {
+  if (wantsAdminDashboard()) history.replaceState(null, '', location.pathname + location.search);
 }
-
-document.getElementById('btn-admin-login-submit').addEventListener('click', async () => {
-  if (adminLoginInFlight) return; // guards against double-click firing two overlapping sign-ins
-  const email = adminEmailInput.value.trim();
-  const password = adminPasswordInput.value;
-  if (!email || !password) {
-    adminLoginStatusEl.textContent = 'מלא/י אימייל וסיסמה';
-    adminLoginStatusEl.className = 'status-line error';
-    return;
-  }
-  adminLoginInFlight = true;
-  adminLoginSubmitBtn.disabled = true;
-  adminLoginStatusEl.textContent = 'מתחבר/ת…';
-  adminLoginStatusEl.className = 'status-line';
-  // This used to be the "sometimes login just doesn't work until you clear
-  // site data" bug: the idle-timeout check in onAuthStateChanged read the
-  // LAST activity timestamp left over from a previous session, saw it was
-  // more than 30 minutes old, and signed the brand-new login straight back
-  // out. A fresh, deliberate sign-in is activity, so record it first.
-  markAdminActivity();
-  try {
-    await withTimeout(auth.signInWithEmailAndPassword(email, password), ADMIN_LOGIN_TIMEOUT_MS);
-    // overlay stays open until onAuthStateChanged confirms this is the
-    // admin account — see below, so a UID mismatch shows a clear error
-    // here instead of silently bouncing back to the home screen.
-  } catch (err) {
-    if (err && err.message === 'timeout') {
-      adminLoginStatusEl.textContent = 'אין תגובה מהשרת — בדקו את החיבור ונסו שוב';
-    } else if (err && err.code === 'auth/too-many-requests') {
-      adminLoginStatusEl.textContent = 'יותר מדי ניסיונות — נסו שוב בעוד כמה דקות';
-    } else if (err && err.code === 'auth/network-request-failed') {
-      adminLoginStatusEl.textContent = 'בעיית רשת — נסו שוב';
-    } else {
-      adminLoginStatusEl.textContent = 'פרטי התחברות שגויים';
-    }
-    adminLoginStatusEl.className = 'status-line error';
-  } finally {
-    adminLoginInFlight = false;
-    adminLoginSubmitBtn.disabled = false;
-  }
-});
+function goToAdminLogin() {
+  location.replace(ADMIN_LOGIN_PAGE);
+}
 
 // "back" just leaves the dashboard screen — it does NOT sign out, so
-// re-entering with 137925 skips the password until the session actually
+// opening /admin again skips the password until the session actually
 // expires (idle timeout) or the admin explicitly signs out.
 document.getElementById('btn-admin-back').addEventListener('click', () => {
+  clearAdminHash();
   showScreen('home');
 });
 
 document.getElementById('btn-admin-signout').addEventListener('click', async () => {
+  clearAdminHash(); // a deliberate sign-out lands on the home screen
   await adminSignOut();
 });
 
@@ -1112,7 +1039,6 @@ async function adminSignOut() {
 }
 
 function enterAdminDashboard() {
-  adminOverlay.hidden = true;
   showScreen('admin');
   if (!adminDashboardActive) startAdminDashboard();
   resetAdminIdleTimer();
@@ -1165,15 +1091,11 @@ auth.onAuthStateChanged(async (user) => {
         await adminSignOut();
         return;
       }
-      enterAdminDashboard();
+      if (wantsAdminDashboard()) enterAdminDashboard();
+      else resetAdminIdleTimer();
     } else if (user) {
-      // signed in successfully, but this account's UID doesn't match
-      // ADMIN_UID in firebase-config.js — almost always a setup mistake,
-      // so surface it clearly instead of bouncing back to the home screen.
+      // not the admin account (the login page already reports this case)
       console.warn('Signed in, but UID does not match ADMIN_UID:', user.uid);
-      adminLoginStatusEl.textContent =
-        'ההתחברות הצליחה אך זה אינו חשבון המנהל המוגדר (בדקו את ADMIN_UID ב-firebase-config.js)';
-      adminLoginStatusEl.className = 'status-line error';
       await adminSignOut();
     } else {
       clearTimeout(adminIdleTimer);
@@ -1191,13 +1113,20 @@ auth.onAuthStateChanged(async (user) => {
       } else if (screens.admin.classList.contains('active')) {
         showScreen('home');
       }
+      // #admin in the address but no (valid) admin session, e.g. it just
+      // expired — send the browser to the sign-in page
+      if (wantsAdminDashboard()) goToAdminLogin();
     }
   } catch (err) {
-    // whatever went wrong, never leave the login box stuck on "מתחבר/ת…"
     console.error('Admin auth-state handling failed:', err);
-    adminLoginStatusEl.textContent = 'אירעה שגיאה, נסה/י שוב';
-    adminLoginStatusEl.className = 'status-line error';
   }
+});
+
+// typing #admin into the address bar of an already-open page
+window.addEventListener('hashchange', () => {
+  if (!wantsAdminDashboard()) return;
+  if (isAdminSession()) enterAdminDashboard();
+  else goToAdminLogin();
 });
 
 // ============================================================

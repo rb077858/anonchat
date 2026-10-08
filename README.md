@@ -15,7 +15,9 @@ can no longer reach the device.
 
 Files:
 ```
-index.html          the three screens (home / searching / chat)
+index.html          all app screens (home / searching / chat / admin dashboard)
+admin/index.html    the admin sign-in page (open /admin)
+admin/admin.js      sign-in logic for that page
 style.css            mobile-first styling
 app.js                all app logic
 firebase-config.js    YOUR Firebase project keys go here
@@ -94,8 +96,8 @@ Without this, the app shows "לא הצלחנו להתחבר לשרת" on the hom
 
 The moderation panel (reviewing reports, blocking abusive devices, messaging
 blocked users) is protected by a **real Firebase account that only you
-control** — not by the "137925" code alone. That code just opens the
-sign-in box in the app; the password is what actually protects the panel.
+control** — the password is what actually protects the panel, not the
+address of the sign-in page.
 
 1. In the Firebase console, go to **Build → Authentication → Sign-in
    method** and enable the **Email/Password** provider.
@@ -111,11 +113,15 @@ sign-in box in the app; the password is what actually protects the panel.
    re-paste the whole file into the Rules editor in the console and
    **Publish** again.
 
-To open the admin panel in the app: on the home screen, type **137925**
-into the "connect by ID" field and press Connect. A sign-in box appears —
-enter the email/password from step 2. If they match your admin UID, you'll
-see the dashboard; anyone else who happens to type that number just gets a
-normal "invalid login" error, because they don't have your password.
+To open the admin panel: add **`/admin`** to the end of the site's address
+(e.g. `https://YOUR_USERNAME.github.io/YOUR_REPO/admin`). That opens the
+sign-in page (`admin/index.html`) — enter the email/password from step 2.
+If they match your admin UID, you're sent back to the site with `#admin` at
+the end of the address and the dashboard opens. While the session is alive
+(until you sign out or 30 minutes pass with no activity), opening `/admin`
+again skips the form and goes straight to the dashboard. Anyone else who
+finds the page just gets "wrong email or password", because they don't have
+your password.
 
 **Being upfront about the limits here:** without a backend server, this is
 the strongest access control a static site can offer — genuine password
