@@ -27,4 +27,4 @@ const firebaseConfig = {
 // the matching password. The real gate is in firebase-rules.json,
 // which must contain this exact same UID. See README.md, step 3.
 // ============================================================
-const ADMIN_UID = "q5nzb7TJ3eNw8TXFdidlHb3lwNQ2";
+const ADMIN_UID = "aR3Gbk5WfLegw7scl7yMs43dRyN2";
