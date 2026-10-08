@@ -1138,3 +1138,58 @@ textarea:focus-visible {
   line-height: 1.6;
   text-align: center;
 }
+
+/* ---------- temporary blocks / support chat clearing ---------- */
+.blocked-until {
+  margin: -6px 0 16px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--amber);
+}
+.block-field-label {
+  display: block;
+  margin: 4px 0 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.block-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  cursor: pointer;
+  /* little chevron on the left (RTL end of the field) */
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+                    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position: 13px 50%, 18px 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-left: 34px;
+}
+.block-select option { background: var(--panel-solid); color: var(--text); }
+.block-custom-row { display: flex; gap: 10px; }
+.block-custom-row .admin-input { flex: 1; text-align: center; }
+.block-show-until { margin: 4px 0 10px; }
+.modal-card .status-line:empty { display: none; }
+.modal-card .status-line { margin: 0 0 12px; }
+
+.block-duration-tag {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 2px 0 6px;
+}
+.block-duration-tag.temporary { color: var(--amber); }
+
+.btn.armed-soft {
+  border-color: var(--danger-dim);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.clear-chat-btn {
+  width: auto;
+  padding: 8px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

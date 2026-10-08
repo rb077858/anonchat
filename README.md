@@ -154,6 +154,18 @@ both the dashboard and reem.bi on this site.
 - If you switch off a blocked person's "can message admin" toggle while
   their support chat is open, the message box disappears for them right
   away.
+- **Temporary blocks:** when blocking, pick a duration (an hour, 6 hours,
+  a day, 3 days, a week, 30 days, or a custom number of minutes / hours /
+  days) or keep it permanent. For a temporary block you also choose whether
+  the person sees how long is left ("החסימה תסתיים בעוד…"). The end time is
+  enforced by the database rules against the server clock (`until` vs.
+  `now`), so it can't be extended or cut short from the browser. When it
+  runs out, the person's app unblocks itself on the spot.
+- **Unblocking deletes the support chat** (for both sides). A temporary
+  block that ran out is cleaned up the same way the next time the dashboard
+  is open.
+- **"ניקוי צ'אט"** in the support chat (two taps) deletes every message of
+  that conversation for both sides, while the person stays blocked.
 - A blocked person still sees a **"contact admin"** option on their home
   screen, opening a private one-on-one channel with you. You can reply from
   the **"משתמשים חסומים"** (Blocked users) tab in the panel, and you can
@@ -314,6 +326,8 @@ Two more things worth knowing:
     reason: string
     blockedAt: timestamp
     canMessageAdmin: boolean
+    until: timestamp           (temporary blocks only — end time)
+    showUntil: boolean         (temporary blocks only — show time left)
 
 /adminChats/{deviceId}/messages/{pushId}
     { sender: "user" | "admin", text, timestamp }

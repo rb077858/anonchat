@@ -44,6 +44,7 @@ const homeStatusEl  = document.getElementById('home-status');
 const homeActionsEl = document.getElementById('home-actions');
 const blockedNoticeEl = document.getElementById('blocked-notice');
 const blockedReasonTextEl = document.getElementById('blocked-reason-text');
+const blockedUntilEl = document.getElementById('blocked-until-text');
 const btnRandom     = document.getElementById('btn-random');
 const formConnect   = document.getElementById('form-connect');
 const inputPartner  = document.getElementById('input-partner-id');
@@ -297,25 +298,87 @@ function setMyStatus(status) {
 // ============================================================
 // 3. BLOCK STATUS (device-level)
 // ============================================================
+// the database's clock, so a wrong clock on this device can't end (or
+// stretch) a temporary block early — the rules use the same clock ("now")
+let serverTimeOffset = 0;
+userDb.ref('.info/serverTimeOffset').on('value', (snap) => {
+  serverTimeOffset = snap.val() || 0;
+});
+function serverNow() {
+  return Date.now() + serverTimeOffset;
+}
+
+// a block is active while blocked is true and, for a temporary block,
+// its end time ("until") hasn't passed yet
+function blockIsActive(info) {
+  return !!(info && info.blocked && (!info.until || info.until > serverNow()));
+}
+
+// "2 ימים ו-3 שעות", "5 שעות ו-12 דקות", "12 דקות", "פחות מדקה"
+function formatDuration(ms) {
+  const totalMin = Math.max(0, Math.ceil(ms / 60000));
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  const part = (n, one, two, many) => n === 1 ? one : n === 2 ? two : n + ' ' + many;
+  const days = part(d, 'יום', 'יומיים', 'ימים');
+  const hours = part(h, 'שעה', 'שעתיים', 'שעות');
+  const mins = part(m, 'דקה', '2 דקות', 'דקות');
+  const and = (a, b) => a + ' ו' + (/^[0-9]/.test(b) ? '-' : '') + b;
+  if (ms < 60000) return 'פחות מדקה';
+  if (d) return h ? and(days, hours) : days;
+  if (h) return m ? and(hours, mins) : hours;
+  return mins;
+}
+function formatDateTime(ts) {
+  return new Date(ts).toLocaleString('he-IL', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+let lastBlockActive = null;
+let blockExpiryTimer = null;
+let blockCountdownTimer = null;
+
 function listenForBlockStatus() {
-  let wasBlocked = null;
   db.ref('blocklist/' + myDeviceId).on('value', (snap) => {
     blockInfo = snap.val();
-    applyBlockedUI();
-    applySupportMuteState();
-    // flip presence the moment a block is added or lifted
-    const blockedNow = !!(blockInfo && blockInfo.blocked);
-    if (myId && !adminActingAsUser && blockedNow !== wasBlocked) applyPresence();
-    wasBlocked = blockedNow;
+    onBlockStateChange();
   });
 }
 
+// runs when the blocklist entry changes AND when a temporary block runs out
+function onBlockStateChange() {
+  const active = blockIsActive(blockInfo);
+  applyBlockedUI();
+  applySupportMuteState();
+
+  clearTimeout(blockExpiryTimer);
+  if (active && blockInfo.until) {
+    // setTimeout can't wait longer than ~24.8 days in one go — re-check then
+    const wait = Math.min(blockInfo.until - serverNow() + 500, 2147483000);
+    blockExpiryTimer = setTimeout(onBlockStateChange, Math.max(wait, 0));
+  }
+
+  // flip presence the moment a block is added, lifted or runs out
+  if (myId && !adminActingAsUser && active !== lastBlockActive) applyPresence();
+
+  // a fresh block makes any earlier home-screen message stale
+  if (active && lastBlockActive === false) setHomeStatus('');
+
+  // the block ended while the support chat was open — that chat is over
+  if (lastBlockActive && !active && screens.support.classList.contains('active')) {
+    closeSupportChat();
+    showScreen('home');
+    setHomeStatus('החסימה הוסרה — אפשר לשוחח שוב', 'ok');
+  }
+  lastBlockActive = active;
+}
+
 function isBlockedNow() {
-  return !adminActingAsUser && !!(blockInfo && blockInfo.blocked);
+  return !adminActingAsUser && blockIsActive(blockInfo);
 }
 
 function applyBlockedUI() {
-  const isBlocked = !!(blockInfo && blockInfo.blocked);
+  const isBlocked = blockIsActive(blockInfo);
   homeActionsEl.hidden = isBlocked;
   blockedNoticeEl.hidden = !isBlocked;
   if (isBlocked) {
@@ -324,6 +387,23 @@ function applyBlockedUI() {
         ? blockInfo.reason
         : 'נחסמת מהאפשרות לשוחח עם משתמשים אחרים.';
   }
+  renderBlockCountdown();
+}
+
+// "time left" line on the blocked notice — only for a temporary block the
+// admin chose to show the user
+function renderBlockCountdown() {
+  clearInterval(blockCountdownTimer);
+  const show = blockIsActive(blockInfo) && blockInfo.until && blockInfo.showUntil;
+  blockedUntilEl.hidden = !show;
+  if (!show) return;
+  const paint = () => {
+    const left = blockInfo.until - serverNow();
+    blockedUntilEl.textContent =
+      'החסימה תסתיים בעוד ' + formatDuration(left) + ' (' + formatDateTime(blockInfo.until) + ')';
+  };
+  paint();
+  blockCountdownTimer = setInterval(paint, 15000);
 }
 
 // ============================================================
@@ -979,12 +1059,20 @@ let supportMessagesRef = null;
 let supportMessagesCb = null;
 
 btnOpenSupport.addEventListener('click', openSupportChat);
-btnSupportBack.addEventListener('click', () => {
-  if (supportMessagesRef && supportMessagesCb) {
-    supportMessagesRef.off('child_added', supportMessagesCb);
-    supportMessagesRef = null;
-    supportMessagesCb = null;
+let supportRemovedCb = null;
+
+function closeSupportChat() {
+  if (supportMessagesRef) {
+    if (supportMessagesCb) supportMessagesRef.off('child_added', supportMessagesCb);
+    if (supportRemovedCb) supportMessagesRef.off('child_removed', supportRemovedCb);
   }
+  supportMessagesRef = null;
+  supportMessagesCb = null;
+  supportRemovedCb = null;
+}
+
+btnSupportBack.addEventListener('click', () => {
+  closeSupportChat();
   showScreen('home');
 });
 
@@ -992,7 +1080,7 @@ btnSupportBack.addEventListener('click', () => {
 // turns off "can message admin" while this screen is open, the input
 // disappears right away instead of only after leaving and coming back
 function applySupportMuteState() {
-  const canMessage = !blockInfo || blockInfo.canMessageAdmin !== false;
+  const canMessage = blockIsActive(blockInfo) && blockInfo.canMessageAdmin !== false;
   const wasShown = !formSupportMessage.hidden;
   supportMutedNoteEl.hidden = canMessage;
   formSupportMessage.hidden = !canMessage;
@@ -1002,24 +1090,33 @@ function applySupportMuteState() {
   }
 }
 
+function removeMessageEl(container, key) {
+  const el = [...container.children].find((c) => c.dataset.key === key);
+  if (el) el.remove();
+}
+
 function openSupportChat() {
   supportMessagesEl.innerHTML = '';
   showScreen('support');
 
   applySupportMuteState();
 
-  if (supportMessagesRef && supportMessagesCb) supportMessagesRef.off('child_added', supportMessagesCb);
+  closeSupportChat();
   supportMessagesRef = db.ref('adminChats/' + myDeviceId + '/messages');
   supportMessagesCb = (snap) => {
     const m = snap.val();
     if (!m) return;
     const div = document.createElement('div');
     div.className = 'msg ' + (m.sender === 'user' ? 'me' : 'them');
+    div.dataset.key = snap.key;
     div.textContent = m.text;
     supportMessagesEl.appendChild(div);
     supportMessagesEl.scrollTop = supportMessagesEl.scrollHeight;
   };
+  // the admin cleared the chat — messages disappear here too, live
+  supportRemovedCb = (snap) => removeMessageEl(supportMessagesEl, snap.key);
   supportMessagesRef.on('child_added', supportMessagesCb);
+  supportMessagesRef.on('child_removed', supportRemovedCb);
 }
 
 formSupportMessage.addEventListener('submit', (e) => {
@@ -1359,12 +1456,46 @@ function startAdminDashboard() {
   adminBlocklistRef = adminDb.ref('blocklist');
   adminBlocklistCb = (snap) => {
     currentBlocklistObj = snap.val() || {};
-    const blockedIds = Object.keys(currentBlocklistObj)
-      .filter((id) => currentBlocklistObj[id] && currentBlocklistObj[id].blocked);
-    syncUnreadListeners(blockedIds);
-    renderBlocked(currentBlocklistObj);
+    refreshBlockedView();
   };
   adminBlocklistRef.on('value', adminBlocklistCb);
+  // keeps the "time left" labels current and notices temporary blocks
+  // that just ran out
+  clearInterval(adminBlockedTick);
+  adminBlockedTick = setInterval(refreshBlockedView, 30000);
+}
+
+let adminBlockedTick = null;
+const expiringNow = new Set();
+
+function refreshBlockedView() {
+  const ids = Object.keys(currentBlocklistObj);
+  // a temporary block that ran out is treated like a normal unblock:
+  // the entry is switched off and the support chat is deleted
+  ids.forEach((id) => {
+    const info = currentBlocklistObj[id];
+    if (info && info.blocked && !blockIsActive(info) && !expiringNow.has(id)) {
+      expiringNow.add(id);
+      unblockDevice(id).finally(() => expiringNow.delete(id));
+    }
+  });
+  const activeIds = ids.filter((id) => blockIsActive(currentBlocklistObj[id]));
+  syncUnreadListeners(activeIds);
+  renderBlocked(currentBlocklistObj);
+}
+
+// unblocking always deletes the admin <-> user support chat too
+async function unblockDevice(deviceId) {
+  if (adminChatDeviceId === deviceId) {
+    closeAdminChatView();
+    showAdminTab('blocked');
+  }
+  try {
+    await adminDb.ref('blocklist/' + deviceId).update({ blocked: false });
+    await adminDb.ref('adminChats/' + deviceId).remove();
+  } catch (e) {
+    console.error('Unblock failed:', e);
+  }
 }
 
 function stopAdminDashboard() {
@@ -1374,6 +1505,7 @@ function stopAdminDashboard() {
   adminReportsRef = null;
   adminBlocklistRef = null;
   syncUnreadListeners([]); // detach all
+  clearInterval(adminBlockedTick);
   closeAdminChatView();
 }
 
@@ -1483,7 +1615,38 @@ function openBlockModal(reportId, targets) {
   pendingBlock = { reportId, targets: valid };
   blockTargetIdEl.textContent = valid.map(t => formatId(t.numericId)).join(' + ');
   blockReasonTextEl.value = '';
+  blockDurationEl.value = 'perm';
+  blockCustomAmountEl.value = '2';
+  blockCustomUnitEl.value = '3600000';
+  blockShowUntilEl.checked = true;
+  blockModalStatusEl.textContent = '';
+  syncBlockDurationUI();
   blockOverlay.hidden = false;
+}
+
+const blockDurationEl = document.getElementById('block-duration');
+const blockCustomRowEl = document.getElementById('block-custom-row');
+const blockCustomAmountEl = document.getElementById('block-custom-amount');
+const blockCustomUnitEl = document.getElementById('block-custom-unit');
+const blockShowUntilRowEl = document.getElementById('block-show-until-row');
+const blockShowUntilEl = document.getElementById('block-show-until');
+const blockModalStatusEl = document.getElementById('block-modal-status');
+
+function syncBlockDurationUI() {
+  blockCustomRowEl.hidden = blockDurationEl.value !== 'custom';
+  blockShowUntilRowEl.hidden = blockDurationEl.value === 'perm';
+}
+blockDurationEl.addEventListener('change', syncBlockDurationUI);
+
+// milliseconds for a temporary block, null for a permanent one, or
+// undefined if the custom amount is invalid
+function chosenBlockDurationMs() {
+  const v = blockDurationEl.value;
+  if (v === 'perm') return null;
+  if (v !== 'custom') return Number(v);
+  const amount = Number(blockCustomAmountEl.value);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  return Math.round(amount * Number(blockCustomUnitEl.value));
 }
 
 document.getElementById('btn-block-cancel').addEventListener('click', () => {
@@ -1495,22 +1658,35 @@ document.getElementById('btn-block-confirm').addEventListener('click', async () 
   if (!pendingBlock) return;
   const { reportId, targets } = pendingBlock;
   const reason = blockReasonTextEl.value.trim();
+  const durationMs = chosenBlockDurationMs();
+  if (durationMs === undefined) {
+    blockModalStatusEl.textContent = 'הזינו משך חסימה תקין';
+    blockModalStatusEl.className = 'status-line error';
+    return;
+  }
+  const entry = {
+    blocked: true,
+    reason,
+    blockedAt: firebase.database.ServerValue.TIMESTAMP,
+    canMessageAdmin: true,
+  };
+  if (durationMs !== null) {
+    // the end time on the database's clock (the rules compare it to "now")
+    entry.until = serverNow() + durationMs;
+    entry.showUntil = blockShowUntilEl.checked;
+  }
   const wasUndercoverBlock = adminActingAsUser;
   const blockedRoomId = currentRoomId; // captured before leaveChat() clears it below
 
   try {
-    await Promise.all(targets.map(t => adminDb.ref('blocklist/' + t.deviceId).set({
-      blocked: true,
-      reason,
-      blockedAt: firebase.database.ServerValue.TIMESTAMP,
-      canMessageAdmin: true,
-    })));
+    await Promise.all(targets.map(t => adminDb.ref('blocklist/' + t.deviceId).set(entry)));
     if (reportId) {
       await resolveReport(reportId, {
         action: 'blocked',
         blockedDeviceIds: targets.map(t => t.deviceId),
         blockedIds: targets.map(t => t.numericId),
         note: reason,
+        until: entry.until || null,
       });
     }
   } catch (e) {
@@ -1582,7 +1758,7 @@ function syncUnreadListeners(deviceIds) {
 // ---------- blocked users list ----------
 function renderBlocked(blocklistObj) {
   const entries = Object.entries(blocklistObj)
-    .filter(([, v]) => v && v.blocked)
+    .filter(([, v]) => blockIsActive(v))
     .sort((a, b) => (b[1].blockedAt || 0) - (a[1].blockedAt || 0));
 
   blockedListEl.innerHTML = '';
@@ -1595,12 +1771,26 @@ function renderBlocked(blocklistObj) {
     const time = info.blockedAt ? new Date(info.blockedAt).toLocaleString('he-IL') : '';
     const shortId = deviceId.length > 14 ? deviceId.slice(0, 14) + '…' : deviceId;
 
+    // the device id comes from the user's browser — never put it in innerHTML
     const row = document.createElement('div');
     row.className = 'card-row';
-    row.innerHTML =
-      '<span class="card-id" dir="ltr">' + shortId + '</span>' +
-      '<span class="card-time">' + time + '</span>';
+    const idSpan = document.createElement('span');
+    idSpan.className = 'card-id';
+    idSpan.dir = 'ltr';
+    idSpan.textContent = shortId;
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'card-time';
+    timeSpan.textContent = time;
+    row.append(idSpan, timeSpan);
     card.appendChild(row);
+
+    const duration = document.createElement('div');
+    duration.className = 'block-duration-tag' + (info.until ? ' temporary' : '');
+    duration.textContent = info.until
+      ? 'זמנית · עד ' + formatDateTime(info.until) + ' · נותרו ' + formatDuration(info.until - serverNow()) +
+        (info.showUntil ? ' · המשתמש רואה את הזמן' : ' · הזמן מוסתר מהמשתמש')
+      : 'לצמיתות';
+    card.appendChild(duration);
 
     if (info.reason) {
       const tag = document.createElement('div');
@@ -1615,8 +1805,22 @@ function renderBlocked(blocklistObj) {
     const btnUnblock = document.createElement('button');
     btnUnblock.className = 'btn btn-secondary';
     btnUnblock.textContent = 'שחרור חסימה';
+    // two taps, since unblocking also deletes the support chat
+    let armed = false;
     btnUnblock.addEventListener('click', () => {
-      adminDb.ref('blocklist/' + deviceId).update({ blocked: false });
+      if (!armed) {
+        armed = true;
+        btnUnblock.textContent = 'לחצו שוב — השיחה תימחק';
+        btnUnblock.classList.add('armed-soft');
+        setTimeout(() => {
+          armed = false;
+          btnUnblock.textContent = 'שחרור חסימה';
+          btnUnblock.classList.remove('armed-soft');
+        }, 4000);
+        return;
+      }
+      btnUnblock.disabled = true;
+      unblockDevice(deviceId);
     });
 
     const btnChat = document.createElement('button');
@@ -1673,13 +1877,15 @@ function openAdminChatView(deviceId) {
   setAdminChatLastSeen(deviceId, Date.now());
   hasUnread[deviceId] = false;
 
-  if (adminChatRef && adminChatCb) adminChatRef.off('child_added', adminChatCb);
+  detachAdminChat();
+  disarmClearChat();
   adminChatRef = adminDb.ref('adminChats/' + deviceId + '/messages');
   adminChatCb = (snap) => {
     const m = snap.val();
     if (!m) return;
     const div = document.createElement('div');
     div.className = 'msg ' + (m.sender === 'admin' ? 'me' : 'them');
+    div.dataset.key = snap.key;
     div.textContent = m.text;
     adminChatMessagesEl.appendChild(div);
     adminChatMessagesEl.scrollTop = adminChatMessagesEl.scrollHeight;
@@ -1687,18 +1893,59 @@ function openAdminChatView(deviceId) {
       setAdminChatLastSeen(deviceId, m.timestamp || Date.now());
     }
   };
+  adminChatRemovedCb = (snap) => removeMessageEl(adminChatMessagesEl, snap.key);
   adminChatRef.on('child_added', adminChatCb);
+  adminChatRef.on('child_removed', adminChatRemovedCb);
+}
+
+let adminChatRemovedCb = null;
+function detachAdminChat() {
+  if (adminChatRef) {
+    if (adminChatCb) adminChatRef.off('child_added', adminChatCb);
+    if (adminChatRemovedCb) adminChatRef.off('child_removed', adminChatRemovedCb);
+  }
+  adminChatRef = null;
+  adminChatCb = null;
+  adminChatRemovedCb = null;
 }
 
 function closeAdminChatView() {
-  if (adminChatRef && adminChatCb) {
-    adminChatRef.off('child_added', adminChatCb);
-    adminChatRef = null;
-    adminChatCb = null;
-  }
+  detachAdminChat();
+  disarmClearChat();
   adminChatDeviceId = null;
   viewChat.hidden = true;
 }
+
+// "ניקוי צ'אט": deletes every message of this support chat, for both sides
+// (the user's screen drops them live via child_removed). Two taps.
+const btnAdminChatClear = document.getElementById('btn-admin-chat-clear');
+let clearChatArmed = false;
+let clearChatTimer = null;
+function disarmClearChat() {
+  clearChatArmed = false;
+  clearTimeout(clearChatTimer);
+  btnAdminChatClear.textContent = "ניקוי צ'אט";
+  btnAdminChatClear.classList.remove('armed');
+}
+btnAdminChatClear.addEventListener('click', async () => {
+  if (!adminChatDeviceId) return;
+  if (!clearChatArmed) {
+    clearChatArmed = true;
+    btnAdminChatClear.textContent = 'לחצו שוב לאישור';
+    btnAdminChatClear.classList.add('armed');
+    clearChatTimer = setTimeout(disarmClearChat, 4000);
+    return;
+  }
+  const deviceId = adminChatDeviceId;
+  disarmClearChat();
+  btnAdminChatClear.disabled = true;
+  try {
+    await adminDb.ref('adminChats/' + deviceId + '/messages').remove();
+  } catch (e) {
+    alert('שגיאה בניקוי הצ׳אט');
+  }
+  btnAdminChatClear.disabled = false;
+});
 
 document.getElementById('btn-admin-chat-back').addEventListener('click', () => {
   closeAdminChatView();

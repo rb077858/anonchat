@@ -30,19 +30,19 @@
         ".read": true,
         ".write": "auth != null && $uid.matches(/^[0-9]{6}$/) && root.child('ids').child($uid).val() === auth.uid",
 
-        "online":   { ".validate": "newData.isBoolean() && (newData.val() === false || (auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('blocklist').child(root.child('owners').child(auth.uid).child('deviceId').val()).child('blocked').val() != true)" },
+        "online":   { ".validate": "newData.isBoolean() && (newData.val() === false || (auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || !(root.child('blocklist').child(root.child('owners').child(auth.uid).child('deviceId').val()).child('blocked').val() == true && (!root.child('blocklist').child(root.child('owners').child(auth.uid).child('deviceId').val()).child('until').exists() || root.child('blocklist').child(root.child('owners').child(auth.uid).child('deviceId').val()).child('until').val() > now)))" },
         "lastSeen": { ".validate": "newData.isNumber()" },
         "status":   { ".validate": "newData.isString() && newData.val().length < 20" },
 
         "invites": {
           "$roomId": {
             ".write": "auth != null && (newData.exists() ? (newData.child('from').val() !== $uid && root.child('ids').child(newData.child('from').val()).val() === auth.uid) : (root.child('ids').child($uid).val() === auth.uid || root.child('ids').child(data.child('from').val()).val() === auth.uid))",
-            ".validate": "newData.hasChildren(['from','fromDevice','timestamp']) && root.child('blocklist').child(root.child('owners').child(root.child('ids').child($uid).val()).child('deviceId').val()).child('blocked').val() != true",
+            ".validate": "newData.hasChildren(['from','fromDevice','timestamp']) && !(root.child('blocklist').child(root.child('owners').child(root.child('ids').child($uid).val()).child('deviceId').val()).child('blocked').val() == true && (!root.child('blocklist').child(root.child('owners').child(root.child('ids').child($uid).val()).child('deviceId').val()).child('until').exists() || root.child('blocklist').child(root.child('owners').child(root.child('ids').child($uid).val()).child('deviceId').val()).child('until').val() > now))",
             "from": {
               ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)"
             },
             "fromDevice": {
-              ".validate": "newData.isString() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val()) && root.child('blocklist').child(newData.val()).child('blocked').val() != true"
+              ".validate": "newData.isString() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val()) && !(root.child('blocklist').child(newData.val()).child('blocked').val() == true && (!root.child('blocklist').child(newData.val()).child('until').exists() || root.child('blocklist').child(newData.val()).child('until').val() > now))"
             },
             "timestamp": { ".validate": "newData.isNumber()" },
             "$other": { ".validate": false }
@@ -57,7 +57,7 @@
       "waiting": {
         ".read": true,
         ".write": "auth != null && (!newData.exists() || !data.exists() || data.child('id').val() === newData.child('id').val())",
-        ".validate": "newData.hasChildren(['id','roomId','deviceId']) && newData.child('id').isString() && root.child('ids').child(newData.child('id').val()).val() === auth.uid && newData.child('deviceId').isString() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === newData.child('deviceId').val()) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true"
+        ".validate": "newData.hasChildren(['id','roomId','deviceId']) && newData.child('id').isString() && root.child('ids').child(newData.child('id').val()).val() === auth.uid && newData.child('deviceId').isString() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === newData.child('deviceId').val()) && !(root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() == true && (!root.child('blocklist').child(newData.child('deviceId').val()).child('until').exists() || root.child('blocklist').child(newData.child('deviceId').val()).child('until').val() > now))"
       }
     },
 
@@ -69,7 +69,7 @@
         "participants": {
           "$uid": {
             ".write": "auth != null && root.child('ids').child($uid).val() === auth.uid",
-            ".validate": "newData.hasChildren(['deviceId','joinedAt']) && root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() != true",
+            ".validate": "newData.hasChildren(['deviceId','joinedAt']) && !(root.child('blocklist').child(newData.child('deviceId').val()).child('blocked').val() == true && (!root.child('blocklist').child(newData.child('deviceId').val()).child('until').exists() || root.child('blocklist').child(newData.child('deviceId').val()).child('until').val() > now))",
             "deviceId": { ".validate": "newData.isString() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val())" },
             "joinedAt": { ".validate": "newData.isNumber()" },
             "$other":   { ".validate": false }
@@ -79,7 +79,7 @@
         "messages": {
           "$msgId": {
             ".write": "auth != null && !data.exists()",
-            ".validate": "newData.hasChildren(['sender','senderDevice','text','timestamp']) && root.child('rooms').child($roomId).child('participants').child(newData.child('sender').val()).exists() && root.child('blocklist').child(newData.child('senderDevice').val()).child('blocked').val() != true",
+            ".validate": "newData.hasChildren(['sender','senderDevice','text','timestamp']) && root.child('rooms').child($roomId).child('participants').child(newData.child('sender').val()).exists() && !(root.child('blocklist').child(newData.child('senderDevice').val()).child('blocked').val() == true && (!root.child('blocklist').child(newData.child('senderDevice').val()).child('until').exists() || root.child('blocklist').child(newData.child('senderDevice').val()).child('until').val() > now))",
             "sender":       { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/) && root.child('ids').child(newData.val()).val() === auth.uid" },
             "senderDevice": { ".validate": "newData.isString() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === newData.val())" },
             "text":         { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
@@ -138,17 +138,21 @@
         "blocked":         { ".validate": "newData.isBoolean()" },
         "reason":          { ".validate": "newData.isString() && newData.val().length <= 500" },
         "blockedAt":       { ".validate": "newData.isNumber()" },
-        "canMessageAdmin": { ".validate": "newData.isBoolean()" }
+        "canMessageAdmin": { ".validate": "newData.isBoolean()" },
+        "until":           { ".validate": "newData.isNumber()" },
+        "showUntil":       { ".validate": "newData.isBoolean()" },
+        "$other":          { ".validate": false }
       }
     },
 
     "adminChats": {
       "$deviceId": {
         ".read": "auth != null && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === $deviceId)",
+        ".write": "auth != null && (auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') && !newData.exists()",
         "messages": {
           "$msgId": {
             ".write": "auth != null && !data.exists() && ((auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') || root.child('owners').child(auth.uid).child('deviceId').val() === $deviceId)",
-            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' ? (!(auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') && root.child('blocklist').child($deviceId).child('canMessageAdmin').val() != false) : (newData.child('sender').val() == 'admin' && (auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat')))",
+            ".validate": "newData.hasChildren(['sender','text','timestamp']) && (newData.child('sender').val() == 'user' ? (!(auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat') && root.child('blocklist').child($deviceId).child('canMessageAdmin').val() != false && (root.child('blocklist').child($deviceId).child('blocked').val() == true && (!root.child('blocklist').child($deviceId).child('until').exists() || root.child('blocklist').child($deviceId).child('until').val() > now))) : (newData.child('sender').val() == 'admin' && (auth.token.sso_email === 'admin@reembir.com' && auth.token.sso_site === 'anonchat')))",
             "sender":    { ".validate": "newData.isString()" },
             "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 2000" },
             "timestamp": { ".validate": "newData.isNumber()" },
