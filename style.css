@@ -1111,3 +1111,15 @@ textarea:focus-visible {
   border-radius: 8px;
 }
 .admin-login-back:hover { color: var(--amber); }
+
+/* shown in place of the input when the admin turned off "can message admin" */
+.support-muted-note {
+  margin: 0;
+  padding: 14px 18px calc(14px + var(--safe-bottom));
+  border-top: 1px solid var(--line);
+  background: rgba(13, 16, 19, 0.9);
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.6;
+  text-align: center;
+}

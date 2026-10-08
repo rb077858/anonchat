@@ -147,7 +147,11 @@ free tier). Use a strong, unique password for the admin account.
 - Blocking is tied to the **device**, not the number — so even if a blocked
   person resets their number (or it gets rotated by another report), they
   stay blocked. A blocked device can no longer start random chats, connect
-  by ID, or be reached by invites.
+  by ID, or be reached by invites — to anyone dialing its number it simply
+  shows as "not connected" (enforced by the rules, not just the app).
+- If you switch off a blocked person's "can message admin" toggle while
+  their support chat is open, the message box disappears for them right
+  away.
 - A blocked person still sees a **"contact admin"** option on their home
   screen, opening a private one-on-one channel with you. You can reply from
   the **"משתמשים חסומים"** (Blocked users) tab in the panel, and you can

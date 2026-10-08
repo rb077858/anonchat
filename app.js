@@ -274,8 +274,10 @@ function applyPresence() {
     online: false,
     lastSeen: firebase.database.ServerValue.TIMESTAMP,
   });
+  // a blocked device always shows as offline, so dialing its number just
+  // says "not connected" (the rules enforce this too — see firebase-rules.json)
   myRef.update({
-    online: true,
+    online: !isBlockedNow(),
     lastSeen: firebase.database.ServerValue.TIMESTAMP,
     status: state,
   });
@@ -296,10 +298,20 @@ function setMyStatus(status) {
 // 3. BLOCK STATUS (device-level)
 // ============================================================
 function listenForBlockStatus() {
+  let wasBlocked = null;
   db.ref('blocklist/' + myDeviceId).on('value', (snap) => {
     blockInfo = snap.val();
     applyBlockedUI();
+    applySupportMuteState();
+    // flip presence the moment a block is added or lifted
+    const blockedNow = !!(blockInfo && blockInfo.blocked);
+    if (myId && !adminActingAsUser && blockedNow !== wasBlocked) applyPresence();
+    wasBlocked = blockedNow;
   });
+}
+
+function isBlockedNow() {
+  return !adminActingAsUser && !!(blockInfo && blockInfo.blocked);
 }
 
 function applyBlockedUI() {
@@ -416,18 +428,29 @@ async function attemptDirectCall(targetId, setStatus) {
   }
 
   const roomId = [myId, targetId].sort().join('_') + '_' + Date.now();
+  const myParticipantRef = db.ref('rooms/' + roomId + '/participants/' + myId);
   try {
-    await db.ref('rooms/' + roomId + '/participants/' + myId).set({
+    await myParticipantRef.set({
       deviceId: myDeviceId,
       joinedAt: firebase.database.ServerValue.TIMESTAMP,
     });
+  } catch (err) {
+    setStatus('לא ניתן להתחבר כרגע', 'error');
+    return false;
+  }
+  try {
     await db.ref('users/' + targetId + '/invites/' + roomId).set({
       from: myId,
       fromDevice: myDeviceId,
       timestamp: firebase.database.ServerValue.TIMESTAMP,
     });
   } catch (err) {
-    setStatus('לא ניתן להתחבר כרגע', 'error');
+    // the rules refuse invites to a blocked device — to the caller that
+    // number simply isn't reachable, same as being offline
+    myParticipantRef.remove()
+      .then(() => db.ref('rooms/' + roomId).remove())
+      .catch(() => {});
+    setStatus('האות הזה לא מחובר', 'error');
     return false;
   }
 
@@ -965,13 +988,25 @@ btnSupportBack.addEventListener('click', () => {
   showScreen('home');
 });
 
+// called on open AND whenever the blocklist entry changes, so if the admin
+// turns off "can message admin" while this screen is open, the input
+// disappears right away instead of only after leaving and coming back
+function applySupportMuteState() {
+  const canMessage = !blockInfo || blockInfo.canMessageAdmin !== false;
+  const wasShown = !formSupportMessage.hidden;
+  supportMutedNoteEl.hidden = canMessage;
+  formSupportMessage.hidden = !canMessage;
+  if (!canMessage && wasShown) {
+    inputSupportMessage.value = '';
+    inputSupportMessage.blur();
+  }
+}
+
 function openSupportChat() {
   supportMessagesEl.innerHTML = '';
   showScreen('support');
 
-  const canMessage = !blockInfo || blockInfo.canMessageAdmin !== false;
-  supportMutedNoteEl.hidden = canMessage;
-  formSupportMessage.hidden = !canMessage;
+  applySupportMuteState();
 
   if (supportMessagesRef && supportMessagesCb) supportMessagesRef.off('child_added', supportMessagesCb);
   supportMessagesRef = db.ref('adminChats/' + myDeviceId + '/messages');

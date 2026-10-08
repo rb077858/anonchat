@@ -30,14 +30,14 @@
         ".read": true,
         ".write": "auth != null && $uid.matches(/^[0-9]{6}$/) && root.child('ids').child($uid).val() === auth.uid",
 
-        "online":   { ".validate": "newData.isBoolean()" },
+        "online":   { ".validate": "newData.isBoolean() && (newData.val() === false || auth.uid === 'aR3Gbk5WfLegw7scl7yMs43dRyN2' || root.child('blocklist').child(root.child('owners').child(auth.uid).child('deviceId').val()).child('blocked').val() != true)" },
         "lastSeen": { ".validate": "newData.isNumber()" },
         "status":   { ".validate": "newData.isString() && newData.val().length < 20" },
 
         "invites": {
           "$roomId": {
             ".write": "auth != null && (newData.exists() ? (newData.child('from').val() !== $uid && root.child('ids').child(newData.child('from').val()).val() === auth.uid) : (root.child('ids').child($uid).val() === auth.uid || root.child('ids').child(data.child('from').val()).val() === auth.uid))",
-            ".validate": "newData.hasChildren(['from','fromDevice','timestamp'])",
+            ".validate": "newData.hasChildren(['from','fromDevice','timestamp']) && root.child('blocklist').child(root.child('owners').child(root.child('ids').child($uid).val()).child('deviceId').val()).child('blocked').val() != true",
             "from": {
               ".validate": "newData.isString() && newData.val().matches(/^[0-9]{6}$/)"
             },
